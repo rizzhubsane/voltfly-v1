@@ -11,6 +11,7 @@ import { format } from "date-fns";
 import Link from "next/link";
 import { Sheet } from "@/components/ui/sheet";
 import { OfflineOnboardDrawer } from "@/components/riders/OfflineOnboardDrawer";
+import { AddRiderDrawer } from "@/components/riders/AddRiderDrawer";
 
 
 
@@ -33,6 +34,7 @@ import {
   ChevronRight,
   Filter,
   UserPlus,
+  Plus,
 } from "lucide-react";
 
 // ─── Constants ───────────────────────────────────────────────────────────────
@@ -267,6 +269,9 @@ export default function RidersPage() {
   const [onboardOpen, setOnboardOpen] = useState(false);
   const [onboardRider, setOnboardRider] = useState<{ id: string; name: string } | null>(null);
 
+  // ── Add Rider Drawer ─────────────────────────────────────────────────────
+  const [addRiderOpen, setAddRiderOpen] = useState(false);
+
   // ── Queries ──────────────────────────────────────────────────────────────
   const {
     data: allRiders = [],
@@ -387,15 +392,24 @@ export default function RidersPage() {
             Manage all registered riders across hubs.
           </p>
         </div>
-        <Button
-          variant="outline"
-          className="gap-2 self-start"
-          onClick={() => exportCSV(filtered)}
-          disabled={filtered.length === 0}
-        >
-          <Download className="h-4 w-4" />
-          Export CSV
-        </Button>
+        <div className="flex items-center gap-2 self-start">
+          <Button
+            className="gap-2 bg-[#0D2D6B] hover:bg-[#0D2D6B]/90"
+            onClick={() => setAddRiderOpen(true)}
+          >
+            <Plus className="h-4 w-4" />
+            Add Rider
+          </Button>
+          <Button
+            variant="outline"
+            className="gap-2"
+            onClick={() => exportCSV(filtered)}
+            disabled={filtered.length === 0}
+          >
+            <Download className="h-4 w-4" />
+            Export CSV
+          </Button>
+        </div>
       </div>
 
       {/* ── Filters ──────────────────────────────────────────────────────── */}
@@ -640,6 +654,15 @@ export default function RidersPage() {
           adminId={adminId ?? ""}
           rider={onboardRider}
           onSuccess={() => setOnboardOpen(false)}
+        />
+      </Sheet>
+
+      {/* Add Rider Drawer */}
+      <Sheet open={addRiderOpen} onOpenChange={setAddRiderOpen}>
+        <AddRiderDrawer
+          isSuperAdmin={isSuperAdmin}
+          defaultHubId={isSuperAdmin ? null : hub_id}
+          onSuccess={() => setAddRiderOpen(false)}
         />
       </Sheet>
     </div>

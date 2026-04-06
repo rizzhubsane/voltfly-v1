@@ -2,6 +2,11 @@ import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
 import { verifyAdmin } from "@/lib/auth";
 
+const KYC_ALLOWED_TEXT_FIELDS = [
+  "aadhaar_number", "pan_number", "address_local", "address_village",
+  "ref1_name", "ref1_phone", "ref2_name", "ref2_phone", "ref3_name", "ref3_phone",
+] as const;
+
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
@@ -105,6 +110,113 @@ export async function GET(request: Request) {
         : error instanceof Error
           ? error.message
           : "Unknown error";
+    return NextResponse.json({ error: message }, { status: 500 });
+  }
+}
+
+/**
+ * POST /api/admin/riders
+ *
+ * Manually creates a new rider record (text details only — no document uploads).
+ * Optionally creates a corresponding kyc row if any KYC text fields are provided.
+ *
+ * Body: {
+ *   name: string          // required
+ *   phone_1: string       // required
+ *   phone_2?: string
+ *   hub_id?: string
+ *   driver_id?: string    // UpGrid driver ID
+ *   status?: string       // default: "pending_kyc"
+ *   kyc?: {               // optional — text KYC fields only
+ *     aadhaar_number?, pan_number?, address_local?, address_village?,
+ *     ref1_name?, ref1_phone?, ref2_name?, ref2_phone?, ref3_name?, ref3_phone?
+ *   }
+ * }
+ */
+export async function POST(request: Request) {
+  try {
+    const auth = await verifyAdmin(request);
+    if (auth.error) return auth.error;
+
+    if (!supabaseAdmin) {
+      return NextResponse.json(
+        { error: "Server is missing Supabase service role configuration" },
+        { status: 500 }
+      );
+    }
+
+    const body = await request.json();
+    const { name, phone_1, phone_2, hub_id, driver_id, status, kyc } = body;
+
+    if (!name?.trim()) {
+      return NextResponse.json({ error: "Full name is required" }, { status: 400 });
+    }
+    if (!phone_1?.trim()) {
+      return NextResponse.json({ error: "Primary phone number is required" }, { status: 400 });
+    }
+
+    // Hub managers can only add riders to their own hub
+    const effectiveHubId =
+      auth.admin.role === "hub_manager" && auth.admin.hub_id
+        ? auth.admin.hub_id
+        : hub_id || null;
+
+    // Check for duplicate phone number
+    const { data: existing } = await supabaseAdmin
+      .from("riders")
+      .select("id")
+      .eq("phone_1", phone_1.trim())
+      .maybeSingle();
+
+    if (existing) {
+      return NextResponse.json(
+        { error: "A rider with this phone number already exists" },
+        { status: 409 }
+      );
+    }
+
+    // Insert rider
+    const { data: rider, error: riderError } = await supabaseAdmin
+      .from("riders")
+      .insert({
+        name: name.trim(),
+        phone_1: phone_1.trim(),
+        phone_2: phone_2?.trim() || null,
+        hub_id: effectiveHubId,
+        driver_id: driver_id?.trim() || null,
+        status: status || "pending_kyc",
+        outstanding_balance: 0,
+      })
+      .select()
+      .single();
+
+    if (riderError) throw riderError;
+
+    // If any KYC text fields were provided, create the kyc row
+    if (kyc && rider) {
+      const kycData: Record<string, unknown> = {
+        rider_id: rider.id,
+        kyc_status: status === "kyc_approved" ? "approved" : "pending",
+      };
+
+      for (const field of KYC_ALLOWED_TEXT_FIELDS) {
+        const val = (kyc as Record<string, unknown>)[field];
+        if (typeof val === "string" && val.trim()) {
+          kycData[field] = val.trim();
+        }
+      }
+
+      const { error: kycError } = await supabaseAdmin.from("kyc").insert(kycData);
+      if (kycError) {
+        // Non-fatal: rider is already created — log and continue
+        console.error("[add-rider] KYC insert error:", kycError.message);
+      }
+    }
+
+    return NextResponse.json({ success: true, rider });
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : "Unknown error";
+    console.error("[add-rider] Error:", message);
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }
