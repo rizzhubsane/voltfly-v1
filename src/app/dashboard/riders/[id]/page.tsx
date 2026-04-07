@@ -68,8 +68,17 @@ import {
   CheckCircle2,
   XCircle,
   Trash2,
+  Pencil,
+  Save,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -288,6 +297,21 @@ export default function RiderDetailPage() {
   const [exitOpen, setExitOpen] = useState(false);
   const [hardDeleteOpen, setHardDeleteOpen] = useState(false);
   const [hardDeleteConfirmName, setHardDeleteConfirmName] = useState("");
+
+  // ── Edit Profile ──────────────────────────────────────────────────────────
+  const [isEditing, setIsEditing] = useState(false);
+  const [editRider, setEditRider] = useState<{
+    name: string; phone_1: string; phone_2: string;
+    hub_id: string; driver_id: string; status: string;
+  } | null>(null);
+  const [editKyc, setEditKyc] = useState<{
+    aadhaar_number: string; pan_number: string;
+    address_local: string; address_village: string;
+    ref1_name: string; ref1_phone: string;
+    ref2_name: string; ref2_phone: string;
+    ref3_name: string; ref3_phone: string;
+    kyc_status: string;
+  } | null>(null);
   const [paymentDialogOpen, setPaymentDialogOpen] = useState(false);
   const [upgridInput, setUpgridInput] = useState("");
   const [assignVehicleOpen, setAssignVehicleOpen] = useState(false);
@@ -625,6 +649,37 @@ export default function RiderDetailPage() {
     onError: (err: Error) => toast.error(err.message),
   });
 
+  // ── Hubs (for edit hub selector) ─────────────────────────────────────────
+  const { data: allHubs = [] } = useQuery<{ id: string; name: string }[]>({
+    queryKey: ["hubs"],
+    queryFn: async () => {
+      const res = await adminFetch("/api/admin/payments?type=hubs");
+      const json = await res.json();
+      return json.hubs ?? [];
+    },
+  });
+
+  // ── Edit Profile Mutation ─────────────────────────────────────────────────
+  const editMutation = useMutation({
+    mutationFn: async () => {
+      const res = await adminFetch(`/api/admin/riders/${riderId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ rider: editRider, kyc: editKyc }),
+      });
+      const d = await res.json();
+      if (!res.ok) throw new Error(d.error || "Failed to update rider");
+      return d;
+    },
+    onSuccess: () => {
+      toast.success("Rider profile updated");
+      queryClient.invalidateQueries({ queryKey: ["rider-full", riderId] });
+      queryClient.invalidateQueries({ queryKey: ["riders"] });
+      setIsEditing(false);
+    },
+    onError: (err: Error) => toast.error(err.message),
+  });
+
   const hardDeleteMutation = useMutation({
     mutationFn: async () => {
       const res = await adminFetch(`/api/admin/riders?id=${riderId}`, { method: "DELETE" });
@@ -788,39 +843,163 @@ export default function RiderDetailPage() {
         {/* ═══ TAB 1: Profile & KYC ═══ */}
         {activeTab === "profile" && (
           <div className="space-y-8">
+            {/* Edit toggle */}
+            <div className="flex justify-end">
+              {!isEditing ? (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="gap-1.5"
+                  onClick={() => {
+                    setEditRider({
+                      name: rider.name ?? "",
+                      phone_1: rider.phone_1 ?? "",
+                      phone_2: rider.phone_2 ?? "",
+                      hub_id: rider.hub_id ?? "",
+                      driver_id: (rider as Record<string, unknown>).driver_id as string ?? "",
+                      status: rider.status ?? "",
+                    });
+                    setEditKyc({
+                      aadhaar_number: kyc?.aadhaar_number ?? "",
+                      pan_number: kyc?.pan_number ?? "",
+                      address_local: kyc?.address_local ?? "",
+                      address_village: kyc?.address_village ?? "",
+                      ref1_name: kyc?.ref1_name ?? "",
+                      ref1_phone: kyc?.ref1_phone ?? "",
+                      ref2_name: kyc?.ref2_name ?? "",
+                      ref2_phone: kyc?.ref2_phone ?? "",
+                      ref3_name: kyc?.ref3_name ?? "",
+                      ref3_phone: kyc?.ref3_phone ?? "",
+                      kyc_status: kyc?.kyc_status ?? "pending",
+                    });
+                    setIsEditing(true);
+                  }}
+                >
+                  <Pencil className="h-3.5 w-3.5" /> Edit Profile
+                </Button>
+              ) : (
+                <div className="flex gap-2">
+                  <Button variant="ghost" size="sm" onClick={() => setIsEditing(false)}>Cancel</Button>
+                  <Button
+                    size="sm"
+                    className="gap-1.5 bg-[#0D2D6B] hover:bg-[#0D2D6B]/90"
+                    disabled={editMutation.isPending}
+                    onClick={() => editMutation.mutate()}
+                  >
+                    {editMutation.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
+                    Save Changes
+                  </Button>
+                </div>
+              )}
+            </div>
+
             {/* Rider Info */}
             <section>
               <h3 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground mb-3 flex items-center gap-2">
                 <UserCircle className="h-4 w-4" /> Rider Information
               </h3>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8">
-                <InfoRow label="Full Name" value={rider.name} />
-                <InfoRow label="Phone 1" value={rider.phone_1} />
-                <InfoRow label="Phone 2" value={rider.phone_2} />
-                <InfoRow label="Hub" value={rider.hubs?.name} />
-                <InfoRow label="Status" value={rider.status} />
-                <InfoRow label="Joined" value={rider.created_at ? format(new Date(rider.created_at), "dd MMM yyyy") : null} />
-              </div>
+              {!isEditing || !editRider ? (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8">
+                  <InfoRow label="Full Name" value={rider.name} />
+                  <InfoRow label="Phone 1" value={rider.phone_1} />
+                  <InfoRow label="Phone 2" value={rider.phone_2} />
+                  <InfoRow label="Hub" value={rider.hubs?.name} />
+                  <InfoRow label="Status" value={rider.status} />
+                  <InfoRow label="Joined" value={rider.created_at ? format(new Date(rider.created_at), "dd MMM yyyy") : null} />
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-1.5">
+                    <Label className="text-xs text-muted-foreground">Full Name</Label>
+                    <Input value={editRider.name} onChange={(e) => setEditRider({ ...editRider, name: e.target.value })} />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-xs text-muted-foreground">Phone 1</Label>
+                    <Input value={editRider.phone_1} onChange={(e) => setEditRider({ ...editRider, phone_1: e.target.value.replace(/\D/g, "").slice(0, 10) })} inputMode="numeric" />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-xs text-muted-foreground">Phone 2</Label>
+                    <Input placeholder="Optional" value={editRider.phone_2} onChange={(e) => setEditRider({ ...editRider, phone_2: e.target.value.replace(/\D/g, "").slice(0, 10) })} inputMode="numeric" />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-xs text-muted-foreground">Hub</Label>
+                    <Select value={editRider.hub_id || "none"} onValueChange={(v) => setEditRider({ ...editRider, hub_id: v === "none" ? "" : v })}>
+                      <SelectTrigger><SelectValue placeholder="Select hub..." /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="none" className="italic text-muted-foreground">No Hub</SelectItem>
+                        {allHubs.map((h) => <SelectItem key={h.id} value={h.id}>{h.name}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-xs text-muted-foreground">Status</Label>
+                    <Select value={editRider.status} onValueChange={(v) => setEditRider({ ...editRider, status: v })}>
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        {["pending_kyc","kyc_submitted","kyc_approved","active","suspended","exited"].map((s) => (
+                          <SelectItem key={s} value={s}>{s.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-xs text-muted-foreground">UpGrid Driver ID</Label>
+                    <Input placeholder="e.g. D263669" value={editRider.driver_id} onChange={(e) => setEditRider({ ...editRider, driver_id: e.target.value })} className="font-mono" />
+                  </div>
+                </div>
+              )}
             </section>
 
             <Separator />
 
             {/* KYC Info */}
-            {kyc ? (
+            {(kyc || isEditing) ? (
               <>
                 <section>
                   <div className="flex items-center justify-between mb-3">
                     <h3 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
                       <ShieldCheck className="h-4 w-4" /> KYC Details
                     </h3>
-                    <StatusBadge status={kyc.kyc_status} />
+                    {!isEditing && kyc && <StatusBadge status={kyc.kyc_status} />}
+                    {isEditing && editKyc && (
+                      <Select value={editKyc.kyc_status} onValueChange={(v) => setEditKyc({ ...editKyc, kyc_status: v })}>
+                        <SelectTrigger className="h-7 w-36 text-xs"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="pending">Pending</SelectItem>
+                          <SelectItem value="submitted">Submitted</SelectItem>
+                          <SelectItem value="approved">Approved</SelectItem>
+                          <SelectItem value="rejected">Rejected</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    )}
                   </div>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8">
-                    <InfoRow label="Aadhaar Number" value={kyc.aadhaar_number} />
-                    <InfoRow label="PAN Number" value={kyc.pan_number} />
-                    <InfoRow label="Local Address" value={kyc.address_local} />
-                    <InfoRow label="Village Address" value={kyc.address_village} />
-                  </div>
+                  {!isEditing || !editKyc ? (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8">
+                      <InfoRow label="Aadhaar Number" value={kyc?.aadhaar_number} />
+                      <InfoRow label="PAN Number" value={kyc?.pan_number} />
+                      <InfoRow label="Local Address" value={kyc?.address_local} />
+                      <InfoRow label="Village Address" value={kyc?.address_village} />
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div className="space-y-1.5">
+                        <Label className="text-xs text-muted-foreground">Aadhaar Number</Label>
+                        <Input placeholder="12-digit" value={editKyc.aadhaar_number} onChange={(e) => setEditKyc({ ...editKyc, aadhaar_number: e.target.value.replace(/\D/g, "").slice(0, 12) })} inputMode="numeric" />
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label className="text-xs text-muted-foreground">PAN Number</Label>
+                        <Input placeholder="ABCDE1234F" value={editKyc.pan_number} onChange={(e) => setEditKyc({ ...editKyc, pan_number: e.target.value.toUpperCase().slice(0, 10) })} className="font-mono" />
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label className="text-xs text-muted-foreground">Local Address</Label>
+                        <Input value={editKyc.address_local} onChange={(e) => setEditKyc({ ...editKyc, address_local: e.target.value })} />
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label className="text-xs text-muted-foreground">Village / Permanent Address</Label>
+                        <Input value={editKyc.address_village} onChange={(e) => setEditKyc({ ...editKyc, address_village: e.target.value })} />
+                      </div>
+                    </div>
+                  )}
                 </section>
 
                 <Separator />
@@ -830,18 +1009,44 @@ export default function RiderDetailPage() {
                   <h3 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground mb-3 flex items-center gap-2">
                     <Users className="h-4 w-4" /> References
                   </h3>
-                  <div className="grid gap-2">
-                    {[
-                      { name: kyc.ref1_name, phone: kyc.ref1_phone },
-                      { name: kyc.ref2_name, phone: kyc.ref2_phone },
-                      { name: kyc.ref3_name, phone: kyc.ref3_phone },
-                    ].map((ref, i) => (
-                      <div key={i} className="flex items-center justify-between rounded-md border px-3 py-2 text-sm">
-                        <span className="font-medium">{ref.name || `Reference ${i + 1}`}</span>
-                        <span className="text-muted-foreground">{ref.phone || "—"}</span>
-                      </div>
-                    ))}
-                  </div>
+                  {!isEditing || !editKyc ? (
+                    <div className="grid gap-2">
+                      {[
+                        { name: kyc?.ref1_name, phone: kyc?.ref1_phone },
+                        { name: kyc?.ref2_name, phone: kyc?.ref2_phone },
+                        { name: kyc?.ref3_name, phone: kyc?.ref3_phone },
+                      ].map((ref, i) => (
+                        <div key={i} className="flex items-center justify-between rounded-md border px-3 py-2 text-sm">
+                          <span className="font-medium">{ref.name || `Reference ${i + 1}`}</span>
+                          <span className="text-muted-foreground">{ref.phone || "—"}</span>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      {([1, 2, 3] as const).map((n) => (
+                        <div key={n} className="grid grid-cols-2 gap-3">
+                          <div className="space-y-1.5">
+                            <Label className="text-xs text-muted-foreground">Ref {n} — Name</Label>
+                            <Input
+                              placeholder={`Reference ${n} name`}
+                              value={editKyc[`ref${n}_name` as keyof typeof editKyc]}
+                              onChange={(e) => setEditKyc({ ...editKyc, [`ref${n}_name`]: e.target.value })}
+                            />
+                          </div>
+                          <div className="space-y-1.5">
+                            <Label className="text-xs text-muted-foreground">Ref {n} — Phone</Label>
+                            <Input
+                              placeholder="10-digit"
+                              inputMode="numeric"
+                              value={editKyc[`ref${n}_phone` as keyof typeof editKyc]}
+                              onChange={(e) => setEditKyc({ ...editKyc, [`ref${n}_phone`]: e.target.value.replace(/\D/g, "").slice(0, 10) })}
+                            />
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </section>
 
                 <Separator />
@@ -907,6 +1112,7 @@ export default function RiderDetailPage() {
               <div className="flex flex-col items-center gap-2 py-12 text-muted-foreground">
                 <ShieldCheck className="h-10 w-10 text-muted-foreground/40" />
                 <p className="font-medium">No KYC data submitted</p>
+                <p className="text-xs">Click &quot;Edit Profile&quot; to add KYC details.</p>
               </div>
             )}
           </div>
