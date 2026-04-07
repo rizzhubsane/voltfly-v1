@@ -67,7 +67,7 @@ export async function PATCH(request: Request) {
     }
 
     // Whitelist allowed fields to prevent arbitrary state updates (e.g. changing rider_id)
-    const allowedFields = ["status", "resolved_at", "payment_status"];
+    const allowedFields = ["status", "resolved_at", "payment_status", "resolution_notes", "charges"];
     const sanitizedUpdates: Record<string, any> = {};
     for (const key of Object.keys(updates)) {
       if (allowedFields.includes(key)) {
@@ -89,6 +89,67 @@ export async function PATCH(request: Request) {
     return NextResponse.json({ success: true });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : "Unknown error";
+    return NextResponse.json({ error: message }, { status: 500 });
+  }
+}
+
+/**
+ * POST /api/admin/service-requests
+ *
+ * Manually creates a service request from the admin dashboard.
+ * Body: { riderId, type?, description, status? }
+ */
+export async function POST(request: Request) {
+  try {
+    const auth = await verifyAdmin(request);
+    if (auth.error) return auth.error;
+
+    if (!supabaseAdmin) {
+      return NextResponse.json({ error: "Missing admin config" }, { status: 500 });
+    }
+
+    const body = await request.json();
+    const { riderId, type, description, status } = body;
+
+    if (!riderId) {
+      return NextResponse.json({ error: "Rider is required" }, { status: 400 });
+    }
+    if (!description?.trim()) {
+      return NextResponse.json({ error: "Description is required" }, { status: 400 });
+    }
+
+    // Verify rider exists
+    const { data: rider, error: riderErr } = await supabaseAdmin
+      .from("riders")
+      .select("id, name")
+      .eq("id", riderId)
+      .single();
+
+    if (riderErr || !rider) {
+      return NextResponse.json({ error: "Rider not found" }, { status: 404 });
+    }
+
+    const nowISO = new Date().toISOString();
+
+    const { data: serviceRequest, error: insertError } = await supabaseAdmin
+      .from("service_requests")
+      .insert({
+        rider_id: riderId,
+        type: type?.trim() || null,
+        description: description.trim(),
+        issue_description: description.trim(),
+        status: status || "open",
+        created_at: nowISO,
+      })
+      .select()
+      .single();
+
+    if (insertError) throw insertError;
+
+    return NextResponse.json({ success: true, request: serviceRequest });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : "Unknown error";
+    console.error("[add-service-request] Error:", message);
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }

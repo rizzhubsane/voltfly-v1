@@ -16,14 +16,14 @@ import {
 } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Shield, ShieldAlert, Users, Loader2, Plus, X } from "lucide-react";
+import { Shield, ShieldAlert, Users, Loader2, Plus, X, UserX, UserCheck, Trash2, AlertTriangle } from "lucide-react";
 import { format } from "date-fns";
 import { toast } from "sonner";
 
 type AdminUserWithHub = AdminUser & { hubs: Partial<Hub> | null };
 
 export default function AdminsPage() {
-  const { role } = useAdmin();
+  const { role, adminId: currentAdminId } = useAdmin();
   const [users, setUsers] = useState<AdminUserWithHub[]>([]);
   const [hubs, setHubs] = useState<{ id: string; name: string }[]>([]);
   const [loading, setLoading] = useState(true);
@@ -32,6 +32,14 @@ export default function AdminsPage() {
   // Modal State
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Deactivate/Reactivate state
+  const [toggleTarget, setToggleTarget] = useState<AdminUserWithHub | null>(null);
+  const [isToggling, setIsToggling] = useState(false);
+
+  // Hard delete state
+  const [deleteTarget, setDeleteTarget] = useState<AdminUserWithHub | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
   const [formData, setFormData] = useState({
     name: "",
     email: "",
@@ -102,6 +110,56 @@ export default function AdminsPage() {
     }
   };
 
+  const handleToggleActive = async () => {
+    if (!toggleTarget) return;
+    setIsToggling(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const res = await adminFetch("/api/admin/users", {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${session?.access_token}`,
+        },
+        body: JSON.stringify({ id: toggleTarget.id, is_active: !toggleTarget.is_active }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to update user");
+      toast.success(toggleTarget.is_active ? `${toggleTarget.name} deactivated` : `${toggleTarget.name} reactivated`);
+      setToggleTarget(null);
+      fetchData();
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "Action failed");
+    } finally {
+      setIsToggling(false);
+    }
+  };
+
+  const handleDeleteUser = async () => {
+    if (!deleteTarget) return;
+    setIsDeleting(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const res = await adminFetch("/api/admin/users", {
+        method: "DELETE",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${session?.access_token}`,
+        },
+        body: JSON.stringify({ id: deleteTarget.id }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to delete user");
+      toast.success(`${deleteTarget.name} permanently deleted`);
+      setDeleteTarget(null);
+      fetchData();
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "Deletion failed");
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
   if (loading && users.length === 0) {
     return (
       <div className="flex h-64 flex-col items-center justify-center gap-4">
@@ -142,12 +200,13 @@ export default function AdminsPage() {
                 <TableHead>Assigned Hub</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead className="text-right">Joined</TableHead>
+                {role === "super_admin" && <TableHead className="w-[130px]">Actions</TableHead>}
               </TableRow>
             </TableHeader>
             <TableBody>
               {users.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={5} className="h-32 text-center text-muted-foreground">
+                  <TableCell colSpan={role === "super_admin" ? 6 : 5} className="h-32 text-center text-muted-foreground">
                     <div className="flex flex-col items-center justify-center gap-2">
                       <Users className="h-8 w-8 text-muted" />
                       <p>No administrators found.</p>
@@ -204,11 +263,115 @@ export default function AdminsPage() {
                     <TableCell className="text-right text-sm text-muted-foreground">
                       {user.created_at ? format(new Date(user.created_at), "MMM d, yyyy") : "Unknown"}
                     </TableCell>
+                    {role === "super_admin" && (
+                      <TableCell>
+                        {user.id !== currentAdminId ? (
+                          <div className="flex items-center gap-1">
+                            <button
+                              className={`inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium transition-colors ${
+                                user.is_active
+                                  ? "text-orange-600 hover:bg-orange-50 border border-orange-200"
+                                  : "text-emerald-600 hover:bg-emerald-50 border border-emerald-200"
+                              }`}
+                              onClick={() => setToggleTarget(user)}
+                              title={user.is_active ? "Deactivate account" : "Reactivate account"}
+                            >
+                              {user.is_active ? <UserX className="h-3 w-3" /> : <UserCheck className="h-3 w-3" />}
+                              {user.is_active ? "Deactivate" : "Reactivate"}
+                            </button>
+                            <button
+                              className="inline-flex items-center justify-center rounded-md h-7 w-7 text-red-500 hover:text-red-600 hover:bg-red-50 transition-colors"
+                              onClick={() => setDeleteTarget(user)}
+                              title="Permanently delete user"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </button>
+                          </div>
+                        ) : (
+                          <span className="text-xs text-muted-foreground italic">You</span>
+                        )}
+                      </TableCell>
+                    )}
                   </TableRow>
                 ))
               )}
             </TableBody>
           </Table>
+        </div>
+      )}
+
+      {/* --- Deactivate / Reactivate Dialog --- */}
+      {toggleTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+          <div className="w-full max-w-sm rounded-xl bg-white shadow-lg p-6 space-y-4">
+            <div className="flex items-center gap-3">
+              {toggleTarget.is_active
+                ? <UserX className="h-6 w-6 text-orange-500 flex-shrink-0" />
+                : <UserCheck className="h-6 w-6 text-emerald-500 flex-shrink-0" />}
+              <div>
+                <h3 className="font-semibold text-secondary">
+                  {toggleTarget.is_active ? "Deactivate" : "Reactivate"} {toggleTarget.name}?
+                </h3>
+                <p className="text-sm text-muted-foreground mt-0.5">
+                  {toggleTarget.is_active
+                    ? "They will lose access to the dashboard immediately."
+                    : "They will regain access to the dashboard."}
+                </p>
+              </div>
+            </div>
+            <div className="flex justify-end gap-3 pt-2 border-t">
+              <button
+                className="px-4 py-2 text-sm rounded-lg border hover:bg-slate-50 transition-colors"
+                onClick={() => setToggleTarget(null)}
+              >
+                Cancel
+              </button>
+              <button
+                className={`px-4 py-2 text-sm font-semibold rounded-lg text-white flex items-center gap-2 transition-colors ${
+                  toggleTarget.is_active ? "bg-orange-600 hover:bg-orange-700" : "bg-emerald-600 hover:bg-emerald-700"
+                }`}
+                disabled={isToggling}
+                onClick={handleToggleActive}
+              >
+                {isToggling ? <Loader2 className="h-4 w-4 animate-spin" /> : (toggleTarget.is_active ? <UserX className="h-4 w-4" /> : <UserCheck className="h-4 w-4" />)}
+                {toggleTarget.is_active ? "Deactivate" : "Reactivate"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* --- Hard Delete Admin User Dialog --- */}
+      {deleteTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+          <div className="w-full max-w-sm rounded-xl bg-white shadow-lg p-6 space-y-4">
+            <div className="flex items-start gap-3">
+              <AlertTriangle className="h-6 w-6 text-destructive flex-shrink-0 mt-0.5" />
+              <div>
+                <h3 className="font-semibold text-destructive">Permanently Delete Admin User</h3>
+                <p className="text-sm text-muted-foreground mt-1">
+                  Delete <strong>{deleteTarget.name}</strong> ({deleteTarget.email})? Their login and all
+                  admin access will be permanently removed from the system.
+                </p>
+              </div>
+            </div>
+            <div className="flex justify-end gap-3 pt-2 border-t">
+              <button
+                className="px-4 py-2 text-sm rounded-lg border hover:bg-slate-50 transition-colors"
+                onClick={() => setDeleteTarget(null)}
+              >
+                Cancel
+              </button>
+              <button
+                className="px-4 py-2 text-sm font-semibold rounded-lg text-white bg-red-600 hover:bg-red-700 flex items-center gap-2 transition-colors"
+                disabled={isDeleting}
+                onClick={handleDeleteUser}
+              >
+                {isDeleting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+                Delete Permanently
+              </button>
+            </div>
+          </div>
         </div>
       )}
 

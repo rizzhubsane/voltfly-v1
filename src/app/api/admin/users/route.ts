@@ -105,3 +105,133 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: msg }, { status: 500 });
   }
 }
+
+/**
+ * PATCH /api/admin/users
+ *
+ * Toggles an admin user's is_active status (deactivate / reactivate).
+ * Super admins only. Cannot deactivate yourself.
+ * Body: { id: string, is_active: boolean }
+ */
+export async function PATCH(request: Request) {
+  try {
+    if (!supabaseAdmin) {
+      return NextResponse.json({ error: "Server missing Supabase service configuration" }, { status: 500 });
+    }
+
+    const authHeader = request.headers.get("Authorization");
+    const token = authHeader?.replace("Bearer ", "");
+    if (!token) return NextResponse.json({ error: "Unauthorized: Missing Token" }, { status: 401 });
+
+    const { data: { user: sessionUser }, error: sessionError } = await supabaseAdmin.auth.getUser(token);
+    if (sessionError || !sessionUser) return NextResponse.json({ error: "Unauthorized: Invalid JWT" }, { status: 401 });
+
+    const { data: callerRecord, error: callerError } = await supabaseAdmin
+      .from("admin_users")
+      .select("role")
+      .eq("id", sessionUser.id)
+      .single();
+
+    if (callerError || !callerRecord || callerRecord.role !== "super_admin") {
+      return NextResponse.json({ error: "Forbidden: Only Super Admins can perform this action." }, { status: 403 });
+    }
+
+    const { id, is_active } = await request.json();
+    if (!id || typeof is_active !== "boolean") {
+      return NextResponse.json({ error: "Missing required fields: id and is_active" }, { status: 400 });
+    }
+
+    if (id === sessionUser.id) {
+      return NextResponse.json({ error: "You cannot deactivate your own account." }, { status: 409 });
+    }
+
+    const { error: updateErr } = await supabaseAdmin
+      .from("admin_users")
+      .update({ is_active })
+      .eq("id", id);
+
+    if (updateErr) throw updateErr;
+
+    return NextResponse.json({ success: true });
+  } catch (error: unknown) {
+    const msg = error instanceof Error ? error.message : "Unknown error";
+    return NextResponse.json({ error: msg }, { status: 500 });
+  }
+}
+
+/**
+ * DELETE /api/admin/users
+ *
+ * Permanently removes an admin user from admin_users and Supabase Auth.
+ * Super admins only. Cannot delete yourself or the last super_admin.
+ * Body: { id: string }
+ */
+export async function DELETE(request: Request) {
+  try {
+    if (!supabaseAdmin) {
+      return NextResponse.json({ error: "Server missing Supabase service configuration" }, { status: 500 });
+    }
+
+    const authHeader = request.headers.get("Authorization");
+    const token = authHeader?.replace("Bearer ", "");
+    if (!token) return NextResponse.json({ error: "Unauthorized: Missing Token" }, { status: 401 });
+
+    const { data: { user: sessionUser }, error: sessionError } = await supabaseAdmin.auth.getUser(token);
+    if (sessionError || !sessionUser) return NextResponse.json({ error: "Unauthorized: Invalid JWT" }, { status: 401 });
+
+    const { data: callerRecord, error: callerError } = await supabaseAdmin
+      .from("admin_users")
+      .select("role")
+      .eq("id", sessionUser.id)
+      .single();
+
+    if (callerError || !callerRecord || callerRecord.role !== "super_admin") {
+      return NextResponse.json({ error: "Forbidden: Only Super Admins can perform this action." }, { status: 403 });
+    }
+
+    const { id } = await request.json();
+    if (!id) return NextResponse.json({ error: "User ID is required" }, { status: 400 });
+
+    if (id === sessionUser.id) {
+      return NextResponse.json({ error: "You cannot delete your own account." }, { status: 409 });
+    }
+
+    // Prevent deleting the last super_admin
+    const { data: targetUser, error: targetErr } = await supabaseAdmin
+      .from("admin_users")
+      .select("role")
+      .eq("id", id)
+      .single();
+
+    if (targetErr || !targetUser) {
+      return NextResponse.json({ error: "User not found" }, { status: 404 });
+    }
+
+    if (targetUser.role === "super_admin") {
+      const { count } = await supabaseAdmin
+        .from("admin_users")
+        .select("id", { count: "exact", head: true })
+        .eq("role", "super_admin");
+
+      if ((count ?? 0) <= 1) {
+        return NextResponse.json({ error: "Cannot delete the last Super Admin account." }, { status: 409 });
+      }
+    }
+
+    // Delete from admin_users table
+    const { error: dbDeleteErr } = await supabaseAdmin.from("admin_users").delete().eq("id", id);
+    if (dbDeleteErr) throw dbDeleteErr;
+
+    // Delete from Supabase Auth
+    const { error: authDeleteErr } = await supabaseAdmin.auth.admin.deleteUser(id);
+    if (authDeleteErr) {
+      console.error("[delete-admin-user] Auth delete error:", authDeleteErr.message);
+      // Non-fatal — DB row is gone; log and continue
+    }
+
+    return NextResponse.json({ success: true });
+  } catch (error: unknown) {
+    const msg = error instanceof Error ? error.message : "Unknown error";
+    return NextResponse.json({ error: msg }, { status: 500 });
+  }
+}

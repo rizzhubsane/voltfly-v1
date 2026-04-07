@@ -1,6 +1,6 @@
 "use client";
 import { adminFetch } from "@/lib/adminFetch";
-
+import { AddServiceRequestDrawer } from "@/components/service/AddServiceRequestDrawer";
 
 import { useState, useMemo, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -117,6 +117,7 @@ export default function ServiceRequestsPage() {
 
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
+  const [addRequestOpen, setAddRequestOpen] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [selected, setSelected] = useState<ServiceRequest | null>(null);
   const [resolutionNotes, setResolutionNotes] = useState("");
@@ -212,9 +213,14 @@ export default function ServiceRequestsPage() {
   return (
     <div className="space-y-8 pb-10">
       {/* Header */}
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight text-[#0D2D6B]">Service Requests</h1>
-        <p className="text-muted-foreground mt-1">Manage vehicle service and maintenance requests from riders.</p>
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight text-[#0D2D6B]">Service Requests</h1>
+          <p className="text-muted-foreground mt-1">Manage vehicle service and maintenance requests from riders.</p>
+        </div>
+        <Button className="gap-2 self-start bg-[#0D2D6B] hover:bg-[#0D2D6B]/90" onClick={() => setAddRequestOpen(true)}>
+          <Plus className="h-4 w-4" /> Add Request
+        </Button>
       </div>
 
       {/* Stats */}
@@ -456,6 +462,11 @@ export default function ServiceRequestsPage() {
             </div>
           </div>
         </SheetContent>
+      </Sheet>
+
+      {/* Add Service Request Drawer */}
+      <Sheet open={addRequestOpen} onOpenChange={setAddRequestOpen}>
+        <AddServiceRequestDrawer onSuccess={() => setAddRequestOpen(false)} />
       </Sheet>
     </div>
   );

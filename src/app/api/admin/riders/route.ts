@@ -146,7 +146,7 @@ export async function POST(request: Request) {
     }
 
     const body = await request.json();
-    const { name, phone_1, phone_2, hub_id, driver_id, status, kyc } = body;
+    const { name, phone_1, phone_2, hub_id, driver_id, status, kyc, created_at } = body;
 
     if (!name?.trim()) {
       return NextResponse.json({ error: "Full name is required" }, { status: 400 });
@@ -176,17 +176,22 @@ export async function POST(request: Request) {
     }
 
     // Insert rider
+    const riderInsert: Record<string, unknown> = {
+      name: name.trim(),
+      phone_1: phone_1.trim(),
+      phone_2: phone_2?.trim() || null,
+      hub_id: effectiveHubId,
+      driver_id: driver_id?.trim() || null,
+      status: status || "pending_kyc",
+      outstanding_balance: 0,
+    };
+    if (created_at) {
+      riderInsert.created_at = created_at;
+    }
+
     const { data: rider, error: riderError } = await supabaseAdmin
       .from("riders")
-      .insert({
-        name: name.trim(),
-        phone_1: phone_1.trim(),
-        phone_2: phone_2?.trim() || null,
-        hub_id: effectiveHubId,
-        driver_id: driver_id?.trim() || null,
-        status: status || "pending_kyc",
-        outstanding_balance: 0,
-      })
+      .insert(riderInsert)
       .select()
       .single();
 
@@ -217,6 +222,79 @@ export async function POST(request: Request) {
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "Unknown error";
     console.error("[add-rider] Error:", message);
+    return NextResponse.json({ error: message }, { status: 500 });
+  }
+}
+
+/**
+ * DELETE /api/admin/riders?id=<uuid>
+ *
+ * Permanently removes a rider and all associated records. Super admins only.
+ * Cascade order:
+ *   battery_events_log → battery_assignments → service_requests → payments
+ *   → security_deposits → kyc → vehicle (unassign) → riders row
+ */
+export async function DELETE(request: Request) {
+  try {
+    const auth = await verifyAdmin(request);
+    if (auth.error) return auth.error;
+
+    if (auth.admin.role !== "super_admin") {
+      return NextResponse.json({ error: "Forbidden: Only Super Admins can permanently delete riders." }, { status: 403 });
+    }
+
+    if (!supabaseAdmin) {
+      return NextResponse.json({ error: "Server is missing Supabase service role configuration" }, { status: 500 });
+    }
+
+    const { searchParams } = new URL(request.url);
+    const id = searchParams.get("id");
+    if (!id) {
+      return NextResponse.json({ error: "Rider ID is required" }, { status: 400 });
+    }
+
+    // Verify rider exists
+    const { data: rider, error: fetchErr } = await supabaseAdmin
+      .from("riders")
+      .select("id, name")
+      .eq("id", id)
+      .single();
+
+    if (fetchErr || !rider) {
+      return NextResponse.json({ error: "Rider not found" }, { status: 404 });
+    }
+
+    // Cascade delete in dependency order
+    const tables = [
+      "battery_events_log",
+      "battery_assignments",
+      "service_requests",
+      "payments",
+      "security_deposits",
+      "kyc",
+    ] as const;
+
+    for (const table of tables) {
+      await supabaseAdmin.from(table).delete().eq("rider_id", id);
+    }
+
+    // Unassign vehicle (don't delete the vehicle itself)
+    await supabaseAdmin
+      .from("vehicles")
+      .update({ assigned_rider_id: null, assigned_at: null })
+      .eq("assigned_rider_id", id);
+
+    // Delete vehicle handover checklists linked to this rider
+    await supabaseAdmin.from("vehicle_handover_checklists").delete().eq("rider_id", id);
+
+    // Finally delete the rider
+    const { error: deleteErr } = await supabaseAdmin.from("riders").delete().eq("id", id);
+    if (deleteErr) throw deleteErr;
+
+    return NextResponse.json({ success: true });
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : "Unknown error";
+    console.error("[delete-rider] Error:", message);
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }

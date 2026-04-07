@@ -283,3 +283,60 @@ export async function PATCH(request: Request) {
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }
+
+/**
+ * DELETE /api/admin/vehicles?id=<uuid>
+ *
+ * Permanently removes a vehicle record. Super admins only.
+ * Blocked if the vehicle still has a rider assigned.
+ */
+export async function DELETE(request: Request) {
+  try {
+    const auth = await verifyAdmin(request);
+    if (auth.error) return auth.error;
+
+    if (auth.admin.role !== "super_admin") {
+      return NextResponse.json({ error: "Forbidden: Only Super Admins can delete vehicles." }, { status: 403 });
+    }
+
+    if (!supabaseAdmin) {
+      return NextResponse.json({ error: "Missing admin config" }, { status: 500 });
+    }
+
+    const { searchParams } = new URL(request.url);
+    const id = searchParams.get("id");
+    if (!id) {
+      return NextResponse.json({ error: "Vehicle ID is required" }, { status: 400 });
+    }
+
+    // Refuse if a rider is still assigned
+    const { data: vehicle, error: fetchErr } = await supabaseAdmin
+      .from("vehicles")
+      .select("id, assigned_rider_id")
+      .eq("id", id)
+      .single();
+
+    if (fetchErr || !vehicle) {
+      return NextResponse.json({ error: "Vehicle not found" }, { status: 404 });
+    }
+
+    if (vehicle.assigned_rider_id) {
+      return NextResponse.json(
+        { error: "Unassign the rider from this vehicle before deleting it." },
+        { status: 409 }
+      );
+    }
+
+    // Delete related checklists first
+    await supabaseAdmin.from("vehicle_handover_checklists").delete().eq("vehicle_id", id);
+
+    // Delete the vehicle
+    const { error: deleteErr } = await supabaseAdmin.from("vehicles").delete().eq("id", id);
+    if (deleteErr) throw deleteErr;
+
+    return NextResponse.json({ success: true });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : "Unknown error";
+    return NextResponse.json({ error: message }, { status: 500 });
+  }
+}

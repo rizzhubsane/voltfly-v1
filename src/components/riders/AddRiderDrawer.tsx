@@ -4,6 +4,7 @@ import { useState } from "react";
 import { toast } from "sonner";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { adminFetch } from "@/lib/adminFetch";
+import { format } from "date-fns";
 import {
   UserPlus,
   Phone,
@@ -14,6 +15,7 @@ import {
   ChevronUp,
   FileText,
   Users,
+  Calendar,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -101,6 +103,7 @@ export function AddRiderDrawer({ isSuperAdmin, defaultHubId, onSuccess }: AddRid
   const [kyc, setKyc] = useState<KycFormValues>({ ...EMPTY_KYC });
   const [kycExpanded, setKycExpanded] = useState(false);
   const [errors, setErrors] = useState<Partial<Record<keyof RiderFormValues, string>>>({});
+  const [onboardingDate, setOnboardingDate] = useState(format(new Date(), "yyyy-MM-dd"));
 
   // Fetch hubs for the hub selector
   const { data: hubs = [] } = useQuery<Hub[]>({
@@ -140,6 +143,7 @@ export function AddRiderDrawer({ isSuperAdmin, defaultHubId, onSuccess }: AddRid
         hub_id: rider.hub_id || null,
         driver_id: rider.driver_id.trim() || null,
         status: rider.status,
+        created_at: onboardingDate ? new Date(onboardingDate).toISOString() : undefined,
       };
       if (hasKycData) payload.kyc = kyc;
 
@@ -162,6 +166,7 @@ export function AddRiderDrawer({ isSuperAdmin, defaultHubId, onSuccess }: AddRid
       setKyc({ ...EMPTY_KYC });
       setKycExpanded(false);
       setErrors({});
+      setOnboardingDate(format(new Date(), "yyyy-MM-dd"));
       onSuccess();
     },
     onError: (err: Error) => {
@@ -309,6 +314,22 @@ export function AddRiderDrawer({ isSuperAdmin, defaultHubId, onSuccess }: AddRid
               ))}
             </SelectContent>
           </Select>
+        </div>
+
+        {/* ── Onboarding Date ─────────────────────────────────────────── */}
+        <div className="space-y-2">
+          <Label className="text-xs font-bold uppercase tracking-wider text-slate-500 flex items-center gap-1.5">
+            <Calendar className="h-3 w-3" /> Onboarding Date
+          </Label>
+          <Input
+            type="date"
+            value={onboardingDate}
+            onChange={(e) => setOnboardingDate(e.target.value)}
+            className="h-10 rounded-xl border-slate-200"
+          />
+          <p className="text-[10px] text-muted-foreground font-medium uppercase tracking-tight">
+            Defaults to today. Change to backdate onboarding if needed.
+          </p>
         </div>
 
         {/* ── KYC Details (collapsible) ────────────────────────────────── */}

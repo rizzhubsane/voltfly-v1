@@ -67,6 +67,7 @@ import {
   ClipboardCheck,
   CheckCircle2,
   XCircle,
+  Trash2,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 
@@ -169,6 +170,11 @@ function InfoRow({ label, value }: { label: string; value: string | null | undef
 
 // ─── Handover Form Component ──────────────────────────────────────────────────
 
+const HANDOVER_BOOL_KEYS: (keyof HandoverFormState)[] = [
+  "charger", "battery", "key", "mirrors", "foot_mat",
+  "helmet", "lights", "horn", "indicators", "tyres", "tools_kit",
+];
+
 function HandoverChecklistForm({
   value,
   onChange,
@@ -178,8 +184,28 @@ function HandoverChecklistForm({
   onChange?: (val: HandoverFormState) => void;
   disabled?: boolean;
 }) {
+  const allChecked = HANDOVER_BOOL_KEYS.every((k) => !!value[k]);
+
+  const toggleAll = () => {
+    const next = !allChecked;
+    const update = HANDOVER_BOOL_KEYS.reduce(
+      (acc, k) => ({ ...acc, [k]: next }),
+      {} as Partial<HandoverFormState>
+    );
+    onChange?.({ ...value, ...update });
+  };
+
   return (
     <div className="space-y-4">
+      {!disabled && (
+        <button
+          type="button"
+          onClick={toggleAll}
+          className="text-xs font-semibold text-primary hover:underline underline-offset-2 self-start"
+        >
+          {allChecked ? "Deselect All" : "Select All"}
+        </button>
+      )}
       <div className="grid grid-cols-2 sm:grid-cols-3 gap-y-3 gap-x-4">
         {HANDOVER_ITEMS.map((item) => (
           <div key={item.key} className="flex items-center space-x-2">
@@ -247,7 +273,8 @@ export default function RiderDetailPage() {
   const params = useParams();
   const router = useRouter();
   const queryClient = useQueryClient();
-  const { adminId } = useAdmin(); // verifies admin access
+  const { adminId, role } = useAdmin(); // verifies admin access
+  const isSuperAdmin = role === "super_admin";
   const riderId = (params?.id ?? "") as string;
 
   // ── State ────────────────────────────────────────────────────────────────
@@ -259,6 +286,8 @@ export default function RiderDetailPage() {
   const [swapActionType, setSwapActionType] = useState<"block" | "unblock">("block");
   const [swapActionReason, setSwapActionReason] = useState("");
   const [exitOpen, setExitOpen] = useState(false);
+  const [hardDeleteOpen, setHardDeleteOpen] = useState(false);
+  const [hardDeleteConfirmName, setHardDeleteConfirmName] = useState("");
   const [paymentDialogOpen, setPaymentDialogOpen] = useState(false);
   const [upgridInput, setUpgridInput] = useState("");
   const [assignVehicleOpen, setAssignVehicleOpen] = useState(false);
@@ -272,6 +301,11 @@ export default function RiderDetailPage() {
   const [cashPlan, setCashPlan] = useState("daily");
   const [cashDate, setCashDate] = useState(format(new Date(), "yyyy-MM-dd"));
   const [cashNotes, setCashNotes] = useState("");
+
+  // Service request form
+  const [serviceDialogOpen, setServiceDialogOpen] = useState(false);
+  const [serviceType, setServiceType] = useState("general");
+  const [serviceDesc, setServiceDesc] = useState("");
   
   // ── Query ────────────────────────────────────────────────────────────────
   const {
@@ -455,7 +489,33 @@ export default function RiderDetailPage() {
     onError: (err: Error) => toast.error(err.message),
   });
 
-
+  const logServiceMutation = useMutation({
+    mutationFn: async () => {
+      if (!serviceDesc.trim()) throw new Error("Description is required");
+      const res = await adminFetch("/api/admin/service-requests", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          riderId,
+          type: serviceType,
+          description: serviceDesc.trim(),
+          status: "open",
+        }),
+      });
+      const d = await res.json();
+      if (!res.ok) throw new Error(d.error || "Failed to create service request");
+      return d;
+    },
+    onSuccess: () => {
+      toast.success("Service request created");
+      queryClient.invalidateQueries({ queryKey: ["rider-full", riderId] });
+      queryClient.invalidateQueries({ queryKey: ["service-requests"] });
+      setServiceDialogOpen(false);
+      setServiceDesc("");
+      setServiceType("general");
+    },
+    onError: (err: Error) => toast.error(err.message),
+  });
 
   const assignVehicleMutation = useMutation({
     mutationFn: async (vehicleId: string) => {
@@ -565,6 +625,21 @@ export default function RiderDetailPage() {
     onError: (err: Error) => toast.error(err.message),
   });
 
+  const hardDeleteMutation = useMutation({
+    mutationFn: async () => {
+      const res = await adminFetch(`/api/admin/riders?id=${riderId}`, { method: "DELETE" });
+      const d = await res.json();
+      if (!res.ok) throw new Error(d.error || "Failed to delete rider");
+      return d;
+    },
+    onSuccess: () => {
+      toast.success("Rider permanently deleted");
+      queryClient.invalidateQueries({ queryKey: ["riders"] });
+      router.push("/dashboard/riders");
+    },
+    onError: (err: Error) => toast.error(err.message),
+  });
+
   // ── Derived ——————————————————————————————————————————————————————————————
   const rider = data?.rider;
   const kyc = data?.kyc;
@@ -669,6 +744,15 @@ export default function RiderDetailPage() {
             {rider.status !== "exited" && (
               <Button variant="outline" className="gap-1.5 border-red-300 text-red-700 hover:bg-red-50" onClick={() => setExitOpen(true)}>
                 <LogOut className="h-3.5 w-3.5" /> Process Exit
+              </Button>
+            )}
+            {isSuperAdmin && (
+              <Button
+                variant="outline"
+                className="gap-1.5 border-red-400 text-red-600 hover:bg-red-50"
+                onClick={() => { setHardDeleteOpen(true); setHardDeleteConfirmName(""); }}
+              >
+                <Trash2 className="h-3.5 w-3.5" /> Delete Rider
               </Button>
             )}
           </div>
@@ -1036,6 +1120,17 @@ export default function RiderDetailPage() {
         {/* ═══ TAB 4: Service Requests ═══ */}
         {activeTab === "service" && (
           <div>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-sm font-semibold text-slate-600">Service History</h3>
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-1.5 text-xs border-[#0D2D6B]/20 text-[#0D2D6B] hover:bg-[#0D2D6B]/5"
+                onClick={() => setServiceDialogOpen(true)}
+              >
+                <Plus className="h-3.5 w-3.5" /> Log Service Request
+              </Button>
+            </div>
             {serviceRequests.length === 0 ? (
               <div className="flex flex-col items-center gap-2 py-16 text-muted-foreground">
                 <Wrench className="h-10 w-10 text-muted-foreground/40" />
@@ -1084,6 +1179,103 @@ export default function RiderDetailPage() {
 
 
       </div>
+
+      {/* ═══ HARD DELETE RIDER DIALOG ═══ */}
+      <Dialog open={hardDeleteOpen} onOpenChange={(open) => { if (!open) { setHardDeleteOpen(false); setHardDeleteConfirmName(""); } }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-destructive">
+              <AlertTriangle className="h-5 w-5" /> Permanently Delete Rider
+            </DialogTitle>
+            <DialogDescription>
+              This will permanently erase <strong>{rider?.name}</strong> and all associated data —
+              KYC records, payments, service requests, battery history, and deposits.
+              <span className="block mt-2 font-semibold text-destructive">This cannot be undone.</span>
+            </DialogDescription>
+          </DialogHeader>
+          <div className="py-3">
+            <label htmlFor="hardDeleteConfirmName" className="text-sm font-medium">
+              Type <span className="font-mono font-bold">{rider?.name}</span> to confirm
+            </label>
+            <Input
+              id="hardDeleteConfirmName"
+              placeholder="Rider's full name"
+              value={hardDeleteConfirmName}
+              onChange={(e) => setHardDeleteConfirmName(e.target.value)}
+              className="mt-1.5"
+              autoFocus
+            />
+          </div>
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button variant="ghost" onClick={() => { setHardDeleteOpen(false); setHardDeleteConfirmName(""); }}>Cancel</Button>
+            <Button
+              variant="destructive"
+              disabled={hardDeleteMutation.isPending || hardDeleteConfirmName.trim() !== rider?.name}
+              onClick={() => hardDeleteMutation.mutate()}
+              className="gap-2"
+            >
+              {hardDeleteMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+              Delete Permanently
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ═══ LOG SERVICE REQUEST DIALOG ═══ */}
+      <Dialog open={serviceDialogOpen} onOpenChange={setServiceDialogOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-[#0D2D6B]">
+              <Wrench className="h-5 w-5" /> Log Service Request
+            </DialogTitle>
+            <DialogDescription>
+              Create a new service request for <strong>{rider?.name}</strong>.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-2">
+            <div className="space-y-2">
+              <Label htmlFor="serviceType" className="text-xs font-bold uppercase tracking-wider text-slate-500">Issue Type</Label>
+              <select
+                id="serviceType"
+                value={serviceType}
+                onChange={(e) => setServiceType(e.target.value)}
+                className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring"
+              >
+                <option value="general">General Service</option>
+                <option value="puncture">Puncture / Tyre Issue</option>
+                <option value="electrical">Electrical Issue</option>
+                <option value="brake">Brake Issue</option>
+                <option value="body_damage">Body Damage</option>
+                <option value="other">Other</option>
+              </select>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="serviceDesc" className="text-xs font-bold uppercase tracking-wider text-slate-500">Description *</Label>
+              <Textarea
+                id="serviceDesc"
+                placeholder="Describe the issue or service needed..."
+                value={serviceDesc}
+                onChange={(e) => setServiceDesc(e.target.value)}
+                rows={3}
+                className="resize-none"
+              />
+            </div>
+          </div>
+
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button variant="ghost" onClick={() => setServiceDialogOpen(false)}>Cancel</Button>
+            <Button
+              className="bg-[#0D2D6B] hover:bg-[#0D2D6B]/90 gap-2"
+              disabled={!serviceDesc.trim() || logServiceMutation.isPending}
+              onClick={() => logServiceMutation.mutate()}
+            >
+              {logServiceMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Wrench className="h-4 w-4" />}
+              Create Request
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* ═══ LIGHTBOX ═══ */}
       {lightboxUrl && (

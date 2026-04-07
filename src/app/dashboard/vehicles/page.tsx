@@ -32,6 +32,14 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
   Truck,
   Plus,
   Search,
@@ -45,6 +53,8 @@ import {
   AlertCircle,
   Fingerprint,
   ScanBarcode,
+  Trash2,
+  AlertTriangle,
 } from "lucide-react";
 import { Label } from "@/components/ui/label";
 import {
@@ -121,6 +131,9 @@ export default function VehiclesPage() {
   const [statusFilter, setStatusFilter] = useState("all");
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [editingVehicle, setEditingVehicle] = useState<VehicleWithDetails | null>(null);
+
+  // Delete state
+  const [deleteTarget, setDeleteTarget] = useState<VehicleWithDetails | null>(null);
 
   // Form state
   const [formValues, setFormValues] = useState<VehicleFormValues>({
@@ -209,6 +222,22 @@ export default function VehiclesPage() {
     }, {} as Record<string, number>);
     return { total, assigned, available, hubCounts };
   }, [vehicles]);
+
+  // ── Delete Mutation ──────────────────────────────────────────────────────
+  const deleteMutation = useMutation({
+    mutationFn: async (vehicleId: string) => {
+      const res = await adminFetch(`/api/admin/vehicles?id=${vehicleId}`, { method: "DELETE" });
+      const d = await res.json();
+      if (!res.ok) throw new Error(d.error || "Failed to delete vehicle");
+      return d;
+    },
+    onSuccess: () => {
+      toast.success("Vehicle deleted");
+      queryClient.invalidateQueries({ queryKey: ["vehicles"] });
+      setDeleteTarget(null);
+    },
+    onError: (err: Error) => toast.error(err.message),
+  });
 
   // ── Form helpers ──────────────────────────────────────────────────────────
   const validate = (values: VehicleFormValues): boolean => {
@@ -384,9 +413,28 @@ export default function VehiclesPage() {
                       )}
                     </TableCell>
                     <TableCell>
-                      <Button variant="ghost" size="sm" className="h-8 w-8 p-0" onClick={() => openEdit(vehicle)}>
-                        <Pencil className="h-4 w-4" />
-                      </Button>
+                      <div className="flex items-center gap-1">
+                        <Button variant="ghost" size="sm" className="h-8 w-8 p-0" onClick={() => openEdit(vehicle)}>
+                          <Pencil className="h-4 w-4" />
+                        </Button>
+                        {isSuperAdmin && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-8 w-8 p-0 text-red-500 hover:text-red-600 hover:bg-red-50"
+                            title={vehicle.assigned_rider_id ? "Unassign rider before deleting" : "Delete vehicle"}
+                            onClick={() => {
+                              if (vehicle.assigned_rider_id) {
+                                toast.error("Unassign the rider from this vehicle before deleting it.");
+                                return;
+                              }
+                              setDeleteTarget(vehicle);
+                            }}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        )}
+                      </div>
                     </TableCell>
                   </TableRow>
                 ))
@@ -501,6 +549,33 @@ export default function VehiclesPage() {
           </form>
         </SheetContent>
       </Sheet>
+
+      {/* Delete Confirmation Dialog */}
+      <Dialog open={!!deleteTarget} onOpenChange={(open) => { if (!open) setDeleteTarget(null); }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-destructive">
+              <AlertTriangle className="h-5 w-5" /> Delete Vehicle
+            </DialogTitle>
+            <DialogDescription>
+              Permanently delete <strong>{(deleteTarget as any)?.vehicle_id || deleteTarget?.chassis_number}</strong>?
+              This will also remove all handover checklists for this vehicle. This cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button variant="ghost" onClick={() => setDeleteTarget(null)}>Cancel</Button>
+            <Button
+              variant="destructive"
+              disabled={deleteMutation.isPending}
+              onClick={() => deleteTarget && deleteMutation.mutate(deleteTarget.id)}
+              className="gap-2"
+            >
+              {deleteMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+              Delete Vehicle
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Error State */}
       {error && (

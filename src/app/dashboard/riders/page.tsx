@@ -1,20 +1,26 @@
 "use client";
 import { adminFetch } from "@/lib/adminFetch";
 
-
 import { useState, useMemo, useCallback } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
 import type { RiderWithHub } from "@/lib/types";
 import { useAdmin } from "@/context/AdminContext";
 import { format } from "date-fns";
 import Link from "next/link";
+import { toast } from "sonner";
 import { Sheet } from "@/components/ui/sheet";
 import { OfflineOnboardDrawer } from "@/components/riders/OfflineOnboardDrawer";
 import { AddRiderDrawer } from "@/components/riders/AddRiderDrawer";
 
-
-
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import {
   Table,
   TableBody,
@@ -35,6 +41,10 @@ import {
   Filter,
   UserPlus,
   Plus,
+  Ban,
+  RefreshCw,
+  Loader2,
+  AlertTriangle,
 } from "lucide-react";
 
 // ─── Constants ───────────────────────────────────────────────────────────────
@@ -205,6 +215,9 @@ function SkeletonRow() {
         <div className="h-5 w-16 rounded-full bg-slate-200 animate-pulse" />
       </TableCell>
       <TableCell>
+        <div className="h-6 w-16 rounded bg-slate-200 animate-pulse" />
+      </TableCell>
+      <TableCell>
         <div className="h-4 w-20 rounded bg-slate-200 animate-pulse" />
       </TableCell>
       <TableCell>
@@ -258,6 +271,7 @@ function exportCSV(riders: RiderWithHub[]) {
 export default function RidersPage() {
   const { role, hub_id, adminId } = useAdmin();
   const isSuperAdmin = role === "super_admin";
+  const queryClient = useQueryClient();
 
   // ── Filters ──────────────────────────────────────────────────────────────
   const [search, setSearch] = useState("");
@@ -272,6 +286,12 @@ export default function RidersPage() {
   // ── Add Rider Drawer ─────────────────────────────────────────────────────
   const [addRiderOpen, setAddRiderOpen] = useState(false);
 
+  // ── Swap Block/Unblock ──────────────────────────────────────────────────
+  const [swapDialogOpen, setSwapDialogOpen] = useState(false);
+  const [swapTarget, setSwapTarget] = useState<RiderWithHub | null>(null);
+  const [swapAction, setSwapAction] = useState<"block" | "unblock">("block");
+  const [swapReason, setSwapReason] = useState("");
+
   // ── Queries ──────────────────────────────────────────────────────────────
   const {
     data: allRiders = [],
@@ -284,19 +304,46 @@ export default function RidersPage() {
     gcTime: 0,
   });
 
-
+  // ── Swap Mutation ────────────────────────────────────────────────────────
+  const swapMutation = useMutation({
+    mutationFn: async () => {
+      if (!swapTarget) throw new Error("No rider selected");
+      const res = await adminFetch(`/api/admin/riders/${swapTarget.id}/swap-access`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: swapAction,
+          reason: swapReason || `Swap manually ${swapAction}ed by admin`,
+          driverId: swapTarget.driver_id,
+          adminId,
+        }),
+      });
+      const d = await res.json();
+      if (!res.ok) throw new Error(d.error || `Failed to ${swapAction} swap access`);
+      return d;
+    },
+    onSuccess: () => {
+      toast.success(`Swap access ${swapAction === "block" ? "blocked" : "unblocked"} for ${swapTarget?.name}`);
+      queryClient.invalidateQueries({ queryKey: ["riders"] });
+      setSwapDialogOpen(false);
+      setSwapTarget(null);
+      setSwapReason("");
+    },
+    onError: (err: Error) => toast.error(err.message),
+  });
 
   // ── Client-side filtering ────────────────────────────────────────────────
   const filtered = useMemo(() => {
     let list = allRiders;
 
-    // Search by name or phone
     if (search.trim()) {
       const q = search.toLowerCase().trim();
       list = list.filter(
         (r) =>
           r.name.toLowerCase().includes(q) ||
-          r.phone_1.toLowerCase().includes(q)
+          r.phone_1.toLowerCase().includes(q) ||
+          (r.vehicle_id ?? "").toLowerCase().includes(q) ||
+          (r.driver_id ?? "").toLowerCase().includes(q)
       );
     }
 
@@ -348,6 +395,7 @@ export default function RidersPage() {
                 <TableHead>Status</TableHead>
                 <TableHead>Vehicle ID</TableHead>
                 <TableHead>Driver ID</TableHead>
+                <TableHead>Swap</TableHead>
                 <TableHead>Joined</TableHead>
                 <TableHead className="w-[80px]" />
               </TableRow>
@@ -418,7 +466,7 @@ export default function RidersPage() {
         <div className="relative flex-1 max-w-sm">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
           <Input
-            placeholder="Search by name or phone…"
+            placeholder="Search by name, phone, vehicle ID, driver ID…"
             value={search}
             onChange={(e) => {
               setSearch(e.target.value);
@@ -491,6 +539,7 @@ export default function RidersPage() {
               <TableHead>Status</TableHead>
               <TableHead>Vehicle ID</TableHead>
               <TableHead>Driver ID</TableHead>
+              <TableHead>Swap</TableHead>
               <TableHead>Joined</TableHead>
               <TableHead className="w-[80px]" />
             </TableRow>
@@ -499,7 +548,7 @@ export default function RidersPage() {
             {paginated.length === 0 ? (
               <TableRow>
                 <TableCell
-                  colSpan={8}
+                  colSpan={9}
                   className="h-40 text-center text-muted-foreground"
                 >
                   <div className="flex flex-col items-center gap-2">
@@ -571,6 +620,43 @@ export default function RidersPage() {
                     </span>
                   </TableCell>
 
+                  {/* Swap block/unblock */}
+                  <TableCell>
+                    {rider.driver_id && rider.status === "active" ? (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="gap-1 text-xs h-7 border-orange-200 text-orange-700 hover:bg-orange-50"
+                        onClick={() => {
+                          setSwapTarget(rider);
+                          setSwapAction("block");
+                          setSwapReason("");
+                          setSwapDialogOpen(true);
+                        }}
+                      >
+                        <Ban className="h-3 w-3" />
+                        Block
+                      </Button>
+                    ) : rider.driver_id && rider.status === "suspended" ? (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="gap-1 text-xs h-7 border-emerald-200 text-emerald-700 hover:bg-emerald-50"
+                        onClick={() => {
+                          setSwapTarget(rider);
+                          setSwapAction("unblock");
+                          setSwapReason("");
+                          setSwapDialogOpen(true);
+                        }}
+                      >
+                        <RefreshCw className="h-3 w-3" />
+                        Unblock
+                      </Button>
+                    ) : (
+                      <span className="text-muted-foreground text-xs">—</span>
+                    )}
+                  </TableCell>
+
                   {/* Date joined */}
                   <TableCell className="text-sm text-muted-foreground">
                     {rider.created_at
@@ -580,7 +666,7 @@ export default function RidersPage() {
 
                   {/* Actions */}
                   <TableCell>
-                    <div className="flex items-center gap-1">
+                    <div className="flex items-center gap-1 flex-wrap">
                       {rider.status === "kyc_approved" && (
                         <Button
                           variant="outline"
@@ -665,6 +751,52 @@ export default function RidersPage() {
           onSuccess={() => setAddRiderOpen(false)}
         />
       </Sheet>
+
+      {/* Swap Block/Unblock Confirmation Dialog */}
+      <Dialog open={swapDialogOpen} onOpenChange={setSwapDialogOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              {swapAction === "block" ? (
+                <><AlertTriangle className="h-5 w-5 text-orange-500" /> Block Swap Access</>
+              ) : (
+                <><RefreshCw className="h-5 w-5 text-emerald-500" /> Unblock Swap Access</>
+              )}
+            </DialogTitle>
+            <DialogDescription>
+              {swapAction === "block"
+                ? <>Block <strong>{swapTarget?.name}</strong>? They will lose Upgrid swapping capabilities and be marked Suspended.</>
+                : <>Unblock <strong>{swapTarget?.name}</strong>? Their Upgrid swapping will be restored and they will be marked Active.</>}
+            </DialogDescription>
+          </DialogHeader>
+
+          {swapAction === "block" && (
+            <div className="py-3">
+              <label htmlFor="swapBlockReason" className="text-sm font-medium">Reason for Blocking</label>
+              <Input
+                id="swapBlockReason"
+                placeholder="e.g. Overdue payment, misconduct..."
+                value={swapReason}
+                onChange={(e) => setSwapReason(e.target.value)}
+                className="mt-1.5"
+                autoFocus
+              />
+            </div>
+          )}
+
+          <DialogFooter className="gap-2 sm:gap-0 mt-2">
+            <Button variant="ghost" onClick={() => setSwapDialogOpen(false)}>Cancel</Button>
+            <Button
+              className={`gap-2 text-white ${swapAction === "block" ? "bg-orange-600 hover:bg-orange-700" : "bg-emerald-600 hover:bg-emerald-700"}`}
+              disabled={swapMutation.isPending || (swapAction === "block" && !swapReason.trim())}
+              onClick={() => swapMutation.mutate()}
+            >
+              {swapMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : (swapAction === "block" ? <Ban className="h-4 w-4" /> : <RefreshCw className="h-4 w-4" />)}
+              {swapAction === "block" ? "Confirm Block" : "Confirm Unblock"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
