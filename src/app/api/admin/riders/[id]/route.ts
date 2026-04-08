@@ -5,7 +5,7 @@ import { verifyAdmin } from "@/lib/auth";
 export const dynamic = "force-dynamic";
 
 const RIDER_ALLOWED_FIELDS = [
-  "name", "phone_1", "phone_2", "hub_id", "driver_id", "status",
+  "name", "phone_1", "phone_2", "hub_id", "driver_id", "status", "created_at",
 ] as const;
 
 const KYC_ALLOWED_FIELDS = [
@@ -56,6 +56,16 @@ export async function PATCH(
           // Allow explicit null for optional fields (phone_2, hub_id, driver_id)
           sanitized[field] = riderUpdates[field] === "" ? null : riderUpdates[field];
         }
+      }
+
+      // Normalise created_at: accept "YYYY-MM-DD" from the date picker and
+      // convert to a full ISO-8601 timestamp so Postgres is happy.
+      if (sanitized.created_at && typeof sanitized.created_at === "string") {
+        const d = new Date(sanitized.created_at);
+        if (isNaN(d.getTime())) {
+          return NextResponse.json({ error: "Invalid onboarding date" }, { status: 400 });
+        }
+        sanitized.created_at = d.toISOString();
       }
 
       if (Object.keys(sanitized).length > 0) {

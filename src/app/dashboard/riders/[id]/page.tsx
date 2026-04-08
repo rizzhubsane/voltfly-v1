@@ -303,6 +303,7 @@ export default function RiderDetailPage() {
   const [editRider, setEditRider] = useState<{
     name: string; phone_1: string; phone_2: string;
     hub_id: string; driver_id: string; status: string;
+    created_at: string;
   } | null>(null);
   const [editKyc, setEditKyc] = useState<{
     aadhaar_number: string; pan_number: string;
@@ -858,6 +859,8 @@ export default function RiderDetailPage() {
                       hub_id: rider.hub_id ?? "",
                       driver_id: (rider as Record<string, unknown>).driver_id as string ?? "",
                       status: rider.status ?? "",
+                      // Use "yyyy-MM-dd" for the HTML date input
+                      created_at: rider.created_at ? format(new Date(rider.created_at), "yyyy-MM-dd") : format(new Date(), "yyyy-MM-dd"),
                     });
                     setEditKyc({
                       aadhaar_number: kyc?.aadhaar_number ?? "",
@@ -945,6 +948,15 @@ export default function RiderDetailPage() {
                   <div className="space-y-1.5">
                     <Label className="text-xs text-muted-foreground">UpGrid Driver ID</Label>
                     <Input placeholder="e.g. D263669" value={editRider.driver_id} onChange={(e) => setEditRider({ ...editRider, driver_id: e.target.value })} className="font-mono" />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-xs text-muted-foreground">Onboarding Date</Label>
+                    <Input
+                      type="date"
+                      value={editRider.created_at}
+                      max={format(new Date(), "yyyy-MM-dd")}
+                      onChange={(e) => setEditRider({ ...editRider, created_at: e.target.value })}
+                    />
                   </div>
                 </div>
               )}
