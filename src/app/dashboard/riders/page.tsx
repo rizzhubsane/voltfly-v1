@@ -773,12 +773,19 @@ export default function RidersPage() {
           {swapAction === "block" && (
             <div className="py-3">
               <label htmlFor="swapBlockReason" className="text-sm font-medium">Reason for Blocking</label>
+              <div className="flex flex-wrap gap-2 mt-1.5 mb-3">
+                <Button type="button" variant="outline" size="sm" className="h-7 text-xs bg-slate-50" onClick={() => setSwapReason("Driver payment default")}>
+                  Driver payment default
+                </Button>
+                <Button type="button" variant="outline" size="sm" className="h-7 text-xs bg-slate-50" onClick={() => setSwapReason("Vehicle in hub")}>
+                  Vehicle in hub
+                </Button>
+              </div>
               <Input
                 id="swapBlockReason"
                 placeholder="e.g. Overdue payment, misconduct..."
                 value={swapReason}
                 onChange={(e) => setSwapReason(e.target.value)}
-                className="mt-1.5"
                 autoFocus
               />
             </div>

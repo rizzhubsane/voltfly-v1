@@ -4,7 +4,7 @@ import { adminFetch } from "@/lib/adminFetch";
 
 import { useState, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { format, addDays, differenceInCalendarDays, isAfter, isBefore } from "date-fns";
+import { format, addDays, differenceInCalendarDays, isAfter, isBefore, startOfDay, startOfWeek, startOfMonth } from "date-fns";
 import type { DateRange } from "react-day-picker";
 import { toast } from "sonner";
 import { 
@@ -31,6 +31,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import { Card, CardContent } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Sheet, SheetTrigger } from "@/components/ui/sheet";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -135,10 +136,16 @@ async function fetchOverdueRiders(): Promise<OverdueRider[]> {
   }
   const json = await res.json();
 
-  type RiderRaw   = { id: string; name: string; phone_1: string; valid_until: string | null };
+  type RiderRaw = {
+    id: string;
+    name: string;
+    phone_1: string;
+    valid_until: string | null;
+    outstanding_balance?: number | null;
+  };
   type BatteryRaw = { current_rider_id: string; status: string; driver_id: string | null };
 
-  const riders:    RiderRaw[]   = json.riders   ?? [];
+  const riders: RiderRaw[] = json.riders ?? [];
   const batteries: BatteryRaw[] = json.batteries ?? [];
 
   const batteryByRiderId = new Map(
@@ -146,31 +153,41 @@ async function fetchOverdueRiders(): Promise<OverdueRider[]> {
   );
 
   const DAILY_RATE = 250; // ₹250 per day
-  const today = new Date();
+  const todayStart = startOfDay(new Date());
 
-  const computed = riders
-    .filter((r) => r.valid_until !== null)
-    .map((r) => {
-      const validUntil = new Date(r.valid_until!);
-      const daysOverdue = isAfter(today, validUntil)
-        ? differenceInCalendarDays(today, validUntil)
-        : 0;
-      const amountOwed = daysOverdue * DAILY_RATE;
+  const computed: OverdueRider[] = riders.map((r) => {
+    const balance = r.outstanding_balance ?? 0;
+    let daysOverdue = 0;
+    let subscriptionOwed = 0;
+    const lastPaymentDate: string | null = r.valid_until;
 
-      return {
-        id:                r.id,
-        name:              r.name,
-        phone_1:           r.phone_1,
-        days_overdue:      daysOverdue,
-        amount_owed:       amountOwed,
-        last_payment_date: r.valid_until, // valid_until serves as the "last paid until" display
-        battery_status:    batteryByRiderId.get(r.id)?.status          || "unknown",
-        driver_id:  batteryByRiderId.get(r.id)?.driver_id || null,
-      } as OverdueRider;
-    });
+    if (r.valid_until) {
+      const validUntilDay = startOfDay(new Date(r.valid_until));
+      if (isAfter(todayStart, validUntilDay)) {
+        daysOverdue = differenceInCalendarDays(todayStart, validUntilDay);
+        subscriptionOwed = daysOverdue * DAILY_RATE;
+      }
+    }
+
+    const amountOwed = Math.max(subscriptionOwed, balance);
+    if (balance > 0 && daysOverdue === 0) {
+      daysOverdue = Math.max(1, Math.ceil(balance / DAILY_RATE));
+    }
+
+    return {
+      id: r.id,
+      name: r.name,
+      phone_1: r.phone_1,
+      days_overdue: daysOverdue,
+      amount_owed: amountOwed,
+      last_payment_date: lastPaymentDate,
+      battery_status: batteryByRiderId.get(r.id)?.status || "unknown",
+      driver_id: batteryByRiderId.get(r.id)?.driver_id || null,
+    };
+  });
 
   return computed
-    .filter((r) => r.days_overdue > 0)
+    .filter((r) => r.amount_owed > 0)
     .sort((a, b) => b.days_overdue - a.days_overdue);
 }
 
@@ -266,6 +283,38 @@ export default function PaymentsPage() {
     onError: (err: Error) => toast.error(err.message),
   });
 
+  // ── Stats ────────────────────────────────────────────────────────────────
+  const paymentStats = useMemo(() => {
+    let today = 0;
+    let week = 0;
+    let month = 0;
+    
+    const now = new Date();
+    const todayStart = startOfDay(now);
+    const weekStart = startOfWeek(now, { weekStartsOn: 1 });
+    const monthStart = startOfMonth(now);
+
+    payments.forEach(p => {
+      if (p.status !== "paid") return;
+      const effectiveHub = role === "hub_manager" && hub_id ? hub_id : hubFilter;
+      const matchesHub =
+        effectiveHub === "all" ||
+        (p.riders?.hub_id != null && p.riders.hub_id === effectiveHub);
+        
+      if (!matchesHub) return;
+
+      const dStr = p.paid_at ?? p.created_at;
+      if (!dStr) return;
+      
+      const d = new Date(dStr);
+      if (d >= todayStart) today += p.amount;
+      if (d >= weekStart) week += p.amount;
+      if (d >= monthStart) month += p.amount;
+    });
+
+    return { today, week, month };
+  }, [payments, hubFilter, role, hub_id]);
+
   // ── Filtering ────────────────────────────────────────────────────────────
   const filteredPayments = useMemo(() => {
     return payments.filter(p => {
@@ -284,11 +333,13 @@ export default function PaymentsPage() {
       // Date: Razorpay payments don't set payment_date — fall back to paid_at then created_at
       const rawDate = p.paid_at ?? p.created_at;
       const d = rawDate ? new Date(rawDate) : null;
-      const matchesDate =
-        !d ||
-        (!dateRange?.from && !dateRange?.to) ||
-        ((dateRange?.from ? !isBefore(d, dateRange.from) : true) &&
-          (dateRange?.to ? !isAfter(d, addDays(dateRange.to, 1)) : true));
+      
+      let matchesDate = true;
+      if (d && dateRange) {
+        if (dateRange.from && d < startOfDay(dateRange.from)) matchesDate = false;
+        const effectiveTo = dateRange.to || dateRange.from;
+        if (effectiveTo && d >= addDays(startOfDay(effectiveTo), 1)) matchesDate = false;
+      }
 
       return matchesSearch && matchesMethod && matchesStatus && matchesHub && matchesDate;
     });
@@ -352,10 +403,10 @@ export default function PaymentsPage() {
       </div>
 
       <Tabs defaultValue="list" className="w-full">
-        <TabsList className="grid w-full grid-cols-3 md:w-[400px]">
-          <TabsTrigger value="list">Payments List</TabsTrigger>
-          <TabsTrigger value="overdue">Overdue</TabsTrigger>
-          <TabsTrigger value="deposits">Security Deposits</TabsTrigger>
+        <TabsList className="grid w-full grid-cols-3 md:w-[600px] h-12 rounded-xl p-1 bg-slate-100/80">
+          <TabsTrigger value="list" className="text-sm md:text-base rounded-lg transition-all data-[state=active]:shadow-sm">Payments List</TabsTrigger>
+          <TabsTrigger value="overdue" className="text-sm md:text-base rounded-lg transition-all data-[state=active]:shadow-sm">Overdue</TabsTrigger>
+          <TabsTrigger value="deposits" className="text-sm md:text-base rounded-lg transition-all data-[state=active]:shadow-sm">Security Deposits</TabsTrigger>
         </TabsList>
 
         {/* ── Payments List Tab ────────────────────────────────────────────── */}
@@ -367,6 +418,43 @@ export default function PaymentsPage() {
               <button className="ml-auto underline text-red-600" onClick={() => queryClient.invalidateQueries({ queryKey: ["all-payments"] })}>Retry</button>
             </div>
           )}
+          {/* Payment Stats */}
+          <div className="grid gap-4 sm:grid-cols-3 mb-6">
+            <Card className="shadow-sm">
+              <CardContent className="p-5 flex items-center gap-4">
+                <div className="p-3 bg-blue-50 text-blue-600 rounded-xl">
+                  <span className="font-serif text-xl font-bold">₹</span>
+                </div>
+                <div>
+                  <p className="text-sm font-medium text-slate-500">Today's Collection</p>
+                  <p className="text-2xl font-bold text-[#0D2D6B]">₹{paymentStats.today.toLocaleString()}</p>
+                </div>
+              </CardContent>
+            </Card>
+            <Card className="shadow-sm">
+              <CardContent className="p-5 flex items-center gap-4">
+                <div className="p-3 bg-emerald-50 text-emerald-600 rounded-xl">
+                  <span className="font-serif text-xl font-bold">₹</span>
+                </div>
+                <div>
+                  <p className="text-sm font-medium text-slate-500">This Week</p>
+                  <p className="text-2xl font-bold text-[#0D2D6B]">₹{paymentStats.week.toLocaleString()}</p>
+                </div>
+              </CardContent>
+            </Card>
+            <Card className="shadow-sm">
+              <CardContent className="p-5 flex items-center gap-4">
+                <div className="p-3 bg-purple-50 text-purple-600 rounded-xl">
+                  <span className="font-serif text-xl font-bold">₹</span>
+                </div>
+                <div>
+                  <p className="text-sm font-medium text-slate-500">This Month</p>
+                  <p className="text-2xl font-bold text-[#0D2D6B]">₹{paymentStats.month.toLocaleString()}</p>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center justify-between">
             <div className="flex flex-1 gap-2 max-w-sm">
               <div className="relative flex-1">
@@ -409,16 +497,47 @@ export default function PaymentsPage() {
                       : "Date range"}
                   </Button>
                 </PopoverTrigger>
-                <PopoverContent className="w-auto p-0" align="end">
-                  <Calendar
-                    mode="range"
-                    selected={dateRange}
-                    onSelect={(range) => setDateRange(range)}
-                    numberOfMonths={2}
-                  />
-                  <div className="flex items-center justify-end gap-2 p-2 border-t">
+                <PopoverContent className="w-80 p-4" align="end">
+                  <div className="grid gap-4">
+                    <div className="space-y-2">
+                      <h4 className="font-medium text-sm">Filter by Date Range</h4>
+                    </div>
+                    <div className="grid gap-3">
+                      <div className="grid grid-cols-4 items-center gap-2">
+                        <label className="text-xs text-muted-foreground uppercase font-bold">From</label>
+                        <Input
+                          type="date"
+                          className="col-span-3 h-8 text-sm"
+                          value={dateRange?.from ? format(dateRange.from, "yyyy-MM-dd") : ""}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            setDateRange((prev) => ({
+                              from: val ? new Date(val + "T00:00:00") : undefined,
+                              to: prev?.to,
+                            } as DateRange));
+                          }}
+                        />
+                      </div>
+                      <div className="grid grid-cols-4 items-center gap-2">
+                        <label className="text-xs text-muted-foreground uppercase font-bold">To</label>
+                        <Input
+                          type="date"
+                          className="col-span-3 h-8 text-sm"
+                          value={dateRange?.to ? format(dateRange.to, "yyyy-MM-dd") : ""}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            setDateRange((prev) => ({
+                              from: prev?.from,
+                              to: val ? new Date(val + "T00:00:00") : undefined,
+                            } as DateRange));
+                          }}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                  <div className="flex justify-end mt-4 pt-3 border-t">
                     <Button variant="ghost" size="sm" onClick={() => setDateRange(undefined)}>
-                      Clear
+                      Clear Filter
                     </Button>
                   </div>
                 </PopoverContent>

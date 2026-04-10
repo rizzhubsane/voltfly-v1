@@ -2,13 +2,12 @@
 import { adminFetch } from "@/lib/adminFetch";
 
 
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
 import type {
   RiderFullData,
-  KycRecord,
   HandoverChecklist,
   HandoverFormState,
   HandoverItemKey,
@@ -103,6 +102,43 @@ const STATUS_CONFIG: Record<RiderStatus, { label: string; bg: string; text: stri
 };
 
 interface DocItem { label: string; url: string | null }
+
+type EditKycForm = {
+  aadhaar_number: string;
+  pan_number: string;
+  address_local: string;
+  address_village: string;
+  ref1_name: string;
+  ref1_phone: string;
+  ref2_name: string;
+  ref2_phone: string;
+  ref3_name: string;
+  ref3_phone: string;
+  kyc_status: string;
+};
+
+const KYC_SELECT_STATUSES = new Set(["pending", "submitted", "approved", "rejected"]);
+
+function normalizeKycStatusForSelect(s: string | undefined | null): string {
+  if (s && KYC_SELECT_STATUSES.has(s)) return s;
+  return "pending";
+}
+
+function kycEditUnchanged(a: EditKycForm, b: EditKycForm): boolean {
+  return (
+    a.aadhaar_number === b.aadhaar_number &&
+    a.pan_number === b.pan_number &&
+    a.address_local === b.address_local &&
+    a.address_village === b.address_village &&
+    a.ref1_name === b.ref1_name &&
+    a.ref1_phone === b.ref1_phone &&
+    a.ref2_name === b.ref2_name &&
+    a.ref2_phone === b.ref2_phone &&
+    a.ref3_name === b.ref3_name &&
+    a.ref3_phone === b.ref3_phone &&
+    a.kyc_status === b.kyc_status
+  );
+}
 
 // ─── Fetch rider full data ───────────────────────────────────────────────────
 
@@ -305,14 +341,8 @@ export default function RiderDetailPage() {
     hub_id: string; driver_id: string; status: string;
     created_at: string;
   } | null>(null);
-  const [editKyc, setEditKyc] = useState<{
-    aadhaar_number: string; pan_number: string;
-    address_local: string; address_village: string;
-    ref1_name: string; ref1_phone: string;
-    ref2_name: string; ref2_phone: string;
-    ref3_name: string; ref3_phone: string;
-    kyc_status: string;
-  } | null>(null);
+  const [editKyc, setEditKyc] = useState<EditKycForm | null>(null);
+  const editKycBaselineRef = useRef<EditKycForm | null>(null);
   const [paymentDialogOpen, setPaymentDialogOpen] = useState(false);
   const [upgridInput, setUpgridInput] = useState("");
   const [assignVehicleOpen, setAssignVehicleOpen] = useState(false);
@@ -663,10 +693,19 @@ export default function RiderDetailPage() {
   // ── Edit Profile Mutation ─────────────────────────────────────────────────
   const editMutation = useMutation({
     mutationFn: async () => {
+      if (!editRider) throw new Error("Nothing to save");
+      const baseline = editKycBaselineRef.current;
+      const includeKyc =
+        !!editKyc &&
+        !!baseline &&
+        !kycEditUnchanged(baseline, editKyc);
+      const body: { rider: typeof editRider; kyc?: EditKycForm } = { rider: editRider };
+      if (includeKyc && editKyc) body.kyc = editKyc;
+
       const res = await adminFetch(`/api/admin/riders/${riderId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ rider: editRider, kyc: editKyc }),
+        body: JSON.stringify(body),
       });
       const d = await res.json();
       if (!res.ok) throw new Error(d.error || "Failed to update rider");
@@ -862,7 +901,7 @@ export default function RiderDetailPage() {
                       // Use "yyyy-MM-dd" for the HTML date input
                       created_at: rider.created_at ? format(new Date(rider.created_at), "yyyy-MM-dd") : format(new Date(), "yyyy-MM-dd"),
                     });
-                    setEditKyc({
+                    const nextKyc: EditKycForm = {
                       aadhaar_number: kyc?.aadhaar_number ?? "",
                       pan_number: kyc?.pan_number ?? "",
                       address_local: kyc?.address_local ?? "",
@@ -873,8 +912,10 @@ export default function RiderDetailPage() {
                       ref2_phone: kyc?.ref2_phone ?? "",
                       ref3_name: kyc?.ref3_name ?? "",
                       ref3_phone: kyc?.ref3_phone ?? "",
-                      kyc_status: kyc?.kyc_status ?? "pending",
-                    });
+                      kyc_status: normalizeKycStatusForSelect(kyc?.kyc_status),
+                    };
+                    setEditKyc(nextKyc);
+                    editKycBaselineRef.current = { ...nextKyc };
                     setIsEditing(true);
                   }}
                 >
@@ -1527,12 +1568,19 @@ export default function RiderDetailPage() {
           {swapActionType === "block" && (
             <div className="py-3">
               <Label htmlFor="blockReason">Reason for Blocking</Label>
+              <div className="flex flex-wrap gap-2 mt-1.5 mb-3">
+                <Button type="button" variant="outline" size="sm" className="h-7 text-xs bg-slate-50" onClick={() => setSwapActionReason("Driver payment default")}>
+                  Driver payment default
+                </Button>
+                <Button type="button" variant="outline" size="sm" className="h-7 text-xs bg-slate-50" onClick={() => setSwapActionReason("Vehicle in hub")}>
+                  Vehicle in hub
+                </Button>
+              </div>
               <Input
                 id="blockReason"
                 placeholder="e.g. Overdue payment, misconduct..."
                 value={swapActionReason}
                 onChange={(e) => setSwapActionReason(e.target.value)}
-                className="mt-1.5"
                 autoFocus
               />
             </div>
