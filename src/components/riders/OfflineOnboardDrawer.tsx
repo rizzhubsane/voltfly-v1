@@ -30,10 +30,13 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 
-const SECURITY_DEPOSIT = 2000;
-const ONBOARDING_FEES = 190;
-const FULL_ONBOARDING = 3800;
-const MINIMUM_CASH = SECURITY_DEPOSIT + ONBOARDING_FEES;
+import { PRICING } from "@/lib/pricingConstants";
+
+// Re-export from shared constants for clarity within this component
+const SECURITY_DEPOSIT = PRICING.SECURITY_DEPOSIT;
+const ONBOARDING_FEES = PRICING.ONBOARDING_FEES;
+const FULL_ONBOARDING = PRICING.FULL_ONBOARDING;
+const MINIMUM_CASH = PRICING.MINIMUM_ONBOARD_CASH;
 
 const GRANT_OPTIONS = [
   { value: "3", label: "3 Days" },
@@ -49,7 +52,7 @@ interface Hub {
 
 interface OfflineOnboardDrawerProps {
   adminId: string;
-  rider: { id: string; name: string } | null;
+  rider: { id: string; name: string; driver_id?: string | null } | null;
   onSuccess: () => void;
 }
 
@@ -132,6 +135,19 @@ export function OfflineOnboardDrawer({ adminId, rider, onSuccess }: OfflineOnboa
             <div className="flex flex-col">
               <span className="font-semibold text-sm text-[#0D2D6B]">{rider.name}</span>
               <span className="text-[10px] text-muted-foreground uppercase font-medium">KYC Approved — Ready to Activate</span>
+            </div>
+          </div>
+        )}
+
+        {/* Warning: no Upgrid Driver ID linked */}
+        {rider && !rider.driver_id && (
+          <div className="flex items-start gap-2.5 rounded-xl border border-amber-200 bg-amber-50 p-3">
+            <AlertTriangle className="h-4 w-4 text-amber-600 mt-0.5 shrink-0" />
+            <div>
+              <p className="text-xs font-semibold text-amber-800">No Upgrid Driver ID linked</p>
+              <p className="text-[11px] text-amber-700 mt-0.5">
+                This rider does not have an Upgrid Driver ID yet. They will be activated but <strong>cannot swap batteries</strong> until a Driver ID is linked from their profile.
+              </p>
             </div>
           </div>
         )}

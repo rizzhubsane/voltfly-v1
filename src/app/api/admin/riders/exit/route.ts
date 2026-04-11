@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
 import { verifyAdmin } from "@/lib/auth";
 import type { HandoverFormState } from "@/lib/types";
+import { getErrorMessage } from "@/lib/errorMessage";
 
 export const dynamic = "force-dynamic";
 
@@ -176,8 +177,8 @@ export async function POST(request: Request) {
           const errText = await blockRes.text();
           warnings.push(`Battery block failed (non-critical): ${errText}`);
         }
-      } catch (blockErr: any) {
-        warnings.push(`Battery block error (non-critical): ${blockErr.message}`);
+      } catch (blockErr: unknown) {
+        warnings.push(`Battery block error (non-critical): ${getErrorMessage(blockErr)}`);
       }
     } else {
       warnings.push("No battery found for this rider — skipped battery block.");

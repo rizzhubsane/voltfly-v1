@@ -7,6 +7,13 @@ import { verifyAdmin } from "@/lib/auth";
  *
  * Records a cash payment, extends the rider's valid_until, and auto-unblocks
  * their battery if the new valid_until is in the future.
+ *
+ * When the rider has an outstanding_balance > 0 and this payment is a rental
+ * extension, this route:
+ *  - Clears outstanding_balance to 0 on the riders row
+ *  - Inserts a SEPARATE paid payment record for the outstanding clearance
+ *    so the clearance event is visible in full payment history audit trail
+ *  - Marks any existing PENDING outstanding_balance payment records as 'paid'
  */
 export async function POST(request: Request) {
   try {
@@ -48,11 +55,11 @@ export async function POST(request: Request) {
 
     const isRentalExtension = cycleDays > 0;
     const paidDate = new Date(paidAt || new Date().toISOString());
-    const dueDate = isRentalExtension 
+    const dueDate = isRentalExtension
       ? new Date(paidDate.getTime() + cycleDays * 24 * 60 * 60 * 1000)
       : paidDate;
 
-    // 2. Insert payment record
+    // 2. Insert primary payment record
     const { data: payment, error: paymentError } = await supabaseAdmin
       .from("payments")
       .insert({
@@ -87,14 +94,63 @@ export async function POST(request: Request) {
       const baseDate = currentValidUntil > now ? currentValidUntil : now;
       newValidUntil = new Date(baseDate.getTime() + cycleDays * 24 * 60 * 60 * 1000);
 
-      // Auto-clear outstanding balance on rental payment
       const currentOutstanding = rider?.outstanding_balance ?? 0;
+
       const riderUpdatePayload: Record<string, unknown> = {
         valid_until: newValidUntil.toISOString(),
       };
+
+      // Clear outstanding balance if any
       if (currentOutstanding > 0) {
         riderUpdatePayload.outstanding_balance = 0;
-        console.log(`[log-cash] Clearing outstanding balance of ₹${currentOutstanding} for rider ${riderId}`);
+        console.log(
+          `[log-cash] Clearing outstanding balance of ₹${currentOutstanding} for rider ${riderId}`
+        );
+
+        // 3a. Create an audit payment record for the outstanding being cleared.
+        // This makes the clearance visible in payment history instead of silently disappearing.
+        const { error: clearanceErr } = await supabaseAdmin
+          .from("payments")
+          .insert({
+            rider_id: riderId,
+            amount: currentOutstanding,
+            plan_type: "outstanding_clearance",
+            method: "cash",
+            status: "paid",
+            paid_at: paidDate.toISOString(),
+            due_date: paidDate.toISOString(),
+            recorded_by: adminId,
+            notes: `Outstanding balance of ₹${currentOutstanding} cleared on cash payment. Linked to payment: ${payment.id}`,
+            created_at: new Date().toISOString(),
+          });
+
+        if (clearanceErr) {
+          console.error(
+            "[log-cash] Failed to insert outstanding clearance record:",
+            clearanceErr.message
+          );
+          // Non-fatal: proceed — the main payment was already recorded
+        }
+
+        // 3b. Mark any existing PENDING outstanding_balance payment rows as paid
+        //     so the payment history is consistent (no ghost pending rows left)
+        const { error: pendingUpdateErr } = await supabaseAdmin
+          .from("payments")
+          .update({
+            status: "paid",
+            paid_at: paidDate.toISOString(),
+            notes: `Cleared by cash payment on ${paidDate.toLocaleDateString("en-IN")}`,
+          })
+          .eq("rider_id", riderId)
+          .eq("plan_type", "outstanding_balance")
+          .eq("status", "pending");
+
+        if (pendingUpdateErr) {
+          console.error(
+            "[log-cash] Failed to mark pending outstanding records as paid:",
+            pendingUpdateErr.message
+          );
+        }
       }
 
       const { error: riderUpdateError } = await supabaseAdmin
@@ -105,7 +161,9 @@ export async function POST(request: Request) {
       if (riderUpdateError) {
         console.error("[log-cash] Failed to update rider valid_until:", riderUpdateError.message);
       } else {
-        console.log(`[log-cash] Rider ${riderId} valid_until updated to ${newValidUntil.toISOString()}`);
+        console.log(
+          `[log-cash] Rider ${riderId} valid_until updated to ${newValidUntil.toISOString()}`
+        );
       }
 
       // 4. Auto-unblock battery if valid_until is now in the future
@@ -133,6 +191,8 @@ export async function POST(request: Request) {
               .from("batteries")
               .update({ status: "active", last_action_at: new Date().toISOString() })
               .eq("current_rider_id", riderId);
+
+            await supabaseAdmin.from("riders").update({ status: "active" }).eq("id", riderId);
 
             console.log(`[log-cash] Battery unblocked for rider ${riderId}`);
           } catch (err) {

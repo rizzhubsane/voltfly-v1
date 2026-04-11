@@ -74,6 +74,12 @@ const config = {
         "accordion-down": "accordion-down 0.2s ease-out",
         "accordion-up": "accordion-up 0.2s ease-out",
       },
+      data: {
+        active: 'state~="active"',
+        inactive: 'state~="inactive"',
+        horizontal: 'orientation~="horizontal"',
+        vertical: 'orientation~="vertical"',
+      },
     },
   },
   plugins: [require("tailwindcss-animate")],

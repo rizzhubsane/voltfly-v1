@@ -3,19 +3,18 @@ import { adminFetch } from "@/lib/adminFetch";
 
 
 
-import { formatDistanceToNow } from "date-fns";
 import { useQuery } from "@tanstack/react-query";
-import { 
-  Users, 
-  BadgeCheck, 
-  CreditCard, 
-  Wrench, 
+import {
+  Users,
+  BadgeCheck,
+  CreditCard,
+  Wrench,
   Truck,
   Zap,
   Clock,
   Ban,
   X,
-  BatteryCharging
+  IndianRupee,
 } from "lucide-react";
 import { useAdmin } from "@/context/AdminContext";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -31,6 +30,7 @@ interface DashboardStats {
   batteriesBlocked: number;
   openServiceRequests: number;
   vehiclesAvailable: number;
+  todaysCollection: number;
 }
 
 interface ActivityEvent {
@@ -67,6 +67,7 @@ interface PaymentLite {
   amount: number;
   created_at: string | null;
   status: string;
+  paid_at?: string | null;
 }
 
 interface KycLite {
@@ -105,7 +106,7 @@ function StatCard({
   loading = false 
 }: { 
   label: string; 
-  value: number; 
+  value: number | string; 
   icon: React.ElementType; 
   trend?: string;
   isAlert?: boolean;
@@ -147,48 +148,6 @@ function StatCard({
   );
 }
 
-function ActivityItem({ event }: { event: ActivityEvent }) {
-  const getIcon = () => {
-    switch (event.type) {
-      case "payment": return <CreditCard className="h-4 w-4 text-emerald-600" />;
-      case "kyc": return <BadgeCheck className={`h-4 w-4 ${event.status === 'approved' ? 'text-emerald-600' : 'text-amber-600'}`} />;
-      case "battery": return <BatteryCharging className={`h-4 w-4 ${event.status === 'blocked' ? 'text-red-600' : 'text-emerald-600'}`} />;
-      case "rider": return <Users className="h-4 w-4 text-blue-600" />;
-      default: return <Clock className="h-4 w-4 text-slate-400" />;
-    }
-  };
-
-  const getBg = () => {
-    switch (event.type) {
-      case "payment": return "bg-emerald-50";
-      case "kyc": return "bg-amber-50";
-      case "battery": return event.status === 'blocked' ? "bg-red-50" : "bg-emerald-50";
-      case "rider": return "bg-blue-50";
-      default: return "bg-slate-50";
-    }
-  };
-
-  return (
-    <div className="flex items-start gap-4 p-3 rounded-lg hover:bg-slate-50 transition-colors group">
-      <div className={`mt-1 h-8 w-8 rounded-full flex items-center justify-center shrink-0 ${getBg()}`}>
-        {getIcon()}
-      </div>
-      <div className="flex-1 min-w-0">
-        <p className="text-sm font-medium text-slate-900 line-clamp-1">
-          {event.description}
-        </p>
-        <div className="flex items-center gap-2 mt-0.5">
-          <span className="text-xs font-semibold text-[#0D2D6B]">{event.riderName}</span>
-          <span className="text-[10px] text-slate-400">•</span>
-          <span className="text-[10px] text-slate-400">
-            {formatDistanceToNow(new Date(event.createdAt), { addSuffix: true })}
-          </span>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 // ─── Main Component ─────────────────────────────────────────────────────────
 
 export default function DashboardOverview() {
@@ -213,6 +172,7 @@ export default function DashboardOverview() {
       const hubs:                typeof json.hubs               = json.hubs               ?? [];
       const riders:              typeof json.riders             = json.riders             ?? [];
       const kycCounts:           typeof json.kycCounts          = json.kycCounts          ?? [];
+      const paymentCounts:       typeof json.paymentCounts      = json.paymentCounts      ?? [];
       const batteryCounts:       typeof json.batteryCounts      = json.batteryCounts      ?? [];
       const serviceCounts:       typeof json.serviceCounts      = json.serviceCounts      ?? [];
       const vehicles:            typeof json.vehicles           = json.vehicles           ?? [];
@@ -235,6 +195,9 @@ export default function DashboardOverview() {
       };
 
       const now = new Date();
+      const todayStart = new Date();
+      todayStart.setHours(0, 0, 0, 0);
+
       const aggregate: DashboardStats = {
         activeRiders: ridersTyped.filter(r => r.status === "active" && filterByHub(r)).length,
         pendingKyc: ((kycCounts || []) as KycLite[]).filter(k => k.kyc_status === "submitted" && filterByHub(k)).length,
@@ -242,6 +205,13 @@ export default function DashboardOverview() {
         batteriesBlocked: ((batteryCounts || []) as Array<{ rider_id: string; status: string | null }>).filter(b => b.status === "blocked" && filterByHub(b)).length,
         openServiceRequests: ((serviceCounts || []) as ServiceLite[]).filter(s => s.status === "open" && filterByHub(s)).length,
         vehiclesAvailable: ((vehicles || []) as VehicleLite[]).filter(v => !v.assigned_rider_id && filterByHub(v)).length,
+        todaysCollection: ((paymentCounts || []) as PaymentLite[]).reduce((sum, p) => {
+          if (p.status === "paid" && filterByHub(p)) {
+            const d = new Date(p.paid_at || p.created_at || 0);
+            if (d >= todayStart) return sum + (p.amount || 0);
+          }
+          return sum;
+        }, 0),
       };
 
       // 5. Calculate Hub-wise Stats (if Super Admin)
@@ -256,6 +226,14 @@ export default function DashboardOverview() {
           batteriesBlocked: ((batteryCounts || []) as Array<{ rider_id: string; status: string | null }>).filter(b => b.status === "blocked" && riderHubById.get(b.rider_id) === hubId).length,
           openServiceRequests: ((serviceCounts || []) as ServiceLite[]).filter(s => s.status === "open" && riderHubById.get(s.rider_id) === hubId).length,
           vehiclesAvailable: ((vehicles || []) as VehicleLite[]).filter(v => !v.assigned_rider_id && v.hub_id === hubId).length,
+          todaysCollection: ((paymentCounts || []) as PaymentLite[]).reduce((sum, p) => {
+            const pHubId = p.rider_id ? riderHubById.get(p.rider_id) ?? null : null;
+            if (p.status === "paid" && pHubId === hubId) {
+              const d = new Date(p.paid_at || p.created_at || 0);
+              if (d >= todayStart) return sum + (p.amount || 0);
+            }
+            return sum;
+          }, 0),
         };
       }) : [];
 
@@ -326,7 +304,8 @@ export default function DashboardOverview() {
       <div className="grid gap-8">
         <div className="space-y-8">
           {/* Main Stat Cards */}
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+            <StatCard label="Today's Collection" value={`₹${(data?.aggregate.todaysCollection || 0).toLocaleString()}`} icon={IndianRupee} loading={isLoading} trend="Updated today" />
             <StatCard label="Active Riders" value={data?.aggregate.activeRiders || 0} icon={Users} loading={isLoading} />
             <StatCard label="Pending KYC" value={data?.aggregate.pendingKyc || 0} icon={BadgeCheck} loading={isLoading} />
             <StatCard label="Overdue Payments" value={data?.aggregate.overduePayments || 0} icon={CreditCard} isAlert={true} loading={isLoading} />
@@ -352,8 +331,9 @@ export default function DashboardOverview() {
                       </div>
                     </CardHeader>
                     <CardContent className="p-0">
-                      <div className="grid grid-cols-3 sm:grid-cols-6 divide-x divide-slate-100">
+                      <div className="grid grid-cols-3 lg:grid-cols-7 divide-x divide-y sm:divide-y-0 divide-slate-100">
                         {[
+                          { label: "Collection", val: hub.todaysCollection, format: (v: number) => `₹${v.toLocaleString()}`, icon: IndianRupee },
                           { label: "Active", val: hub.activeRiders, icon: Users },
                           { label: "KYC", val: hub.pendingKyc, icon: BadgeCheck },
                           { label: "Payment", val: hub.overduePayments, icon: CreditCard, alert: true },
@@ -363,7 +343,7 @@ export default function DashboardOverview() {
                         ].map((s, idx) => (
                           <div key={idx} className="p-4 flex flex-col items-center text-center group hover:bg-slate-50 transition-colors">
                             <s.icon className={`h-4 w-4 mb-2 ${s.alert && s.val > 0 ? 'text-red-500' : 'text-slate-400'}`} />
-                            <span className={`text-xl font-bold ${s.alert && s.val > 0 ? 'text-red-600' : 'text-slate-900'}`}>{s.val}</span>
+                            <span className={`text-xl font-bold ${s.alert && s.val > 0 ? 'text-red-600' : 'text-slate-900'}`}>{s.format ? s.format(s.val) : s.val}</span>
                             <span className="text-[10px] uppercase font-semibold text-slate-400 tracking-tight">{s.label}</span>
                           </div>
                         ))}

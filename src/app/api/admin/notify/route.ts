@@ -5,6 +5,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from "@/lib/supabase";
 import { verifyAdmin } from "@/lib/auth";
+import { getErrorMessage } from "@/lib/errorMessage";
+import type { Database } from "@/lib/types";
+
+type NotificationHistoryRow = Database["public"]["Tables"]["notifications"]["Row"];
 
 const SUPABASE_FUNCTIONS_URL = `${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1`;
 
@@ -163,39 +167,43 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "Missing admin config" }, { status: 500 });
     }
 
-    // Note: Cast "notifications" to any to bypass strict typing if it isn't generated
-    const { data, error } = await (supabaseAdmin as any)
-      .from('notifications')
-      .select('id, rider_id, type, title, message, channel, created_at')
-      .order('created_at', { ascending: false })
+    const { data, error } = await supabaseAdmin
+      .from("notifications")
+      .select("id, rider_id, type, title, message, channel, created_at")
+      .order("created_at", { ascending: false })
       .limit(50);
 
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
-    const rows = data ?? [];
-    const riderIds = Array.from(new Set(rows.map((r: any) => r.rider_id).filter(Boolean)));
-    
-    let riderMap = new Map();
+    const rows = (data ?? []) as NotificationHistoryRow[];
+    const riderIds = Array.from(
+      new Set(rows.map((r) => r.rider_id).filter((id): id is string => !!id))
+    );
+
+    let riderMap = new Map<string, { id: string; name: string }>();
     if (riderIds.length > 0) {
       const { data: riders } = await supabaseAdmin
-        .from('riders')
-        .select('id, name')
-        .in('id', riderIds as string[]);
-      
+        .from("riders")
+        .select("id, name")
+        .in("id", riderIds);
+
       if (riders) {
-        riderMap = new Map(riders.map(r => [r.id, r]));
+        riderMap = new Map(riders.map((r) => [r.id, r]));
       }
     }
 
-    const enriched = rows.map((n: any) => ({
-      ...n,
-      riders: n.rider_id && riderMap.has(n.rider_id) ? { name: riderMap.get(n.rider_id).name } : null
-    }));
+    const enriched = rows.map((n) => {
+      const rider = n.rider_id ? riderMap.get(n.rider_id) : undefined;
+      return {
+        ...n,
+        riders: rider ? { name: rider.name } : null,
+      };
+    });
 
     return NextResponse.json({ notifications: enriched });
-  } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+  } catch (error: unknown) {
+    return NextResponse.json({ error: getErrorMessage(error) }, { status: 500 });
   }
 }

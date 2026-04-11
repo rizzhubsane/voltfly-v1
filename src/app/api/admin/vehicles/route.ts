@@ -2,6 +2,13 @@ import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
 import { verifyAdmin } from "@/lib/auth";
 import type { HandoverFormState } from "@/lib/types";
+import type { Database } from "@/lib/types";
+import { getErrorMessage } from "@/lib/errorMessage";
+
+type VehicleRow = Database["public"]["Tables"]["vehicles"]["Row"];
+type VehicleUpdate = Database["public"]["Tables"]["vehicles"]["Update"];
+type VehicleInsert = Database["public"]["Tables"]["vehicles"]["Insert"];
+type HandoverInsert = Database["public"]["Tables"]["vehicle_handover_checklists"]["Insert"];
 
 export const dynamic = "force-dynamic";
 
@@ -91,8 +98,7 @@ export async function GET(request: Request) {
 
     return NextResponse.json({ vehicles });
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : "Unknown error";
-    return NextResponse.json({ error: message }, { status: 500 });
+    return NextResponse.json({ error: getErrorMessage(err) }, { status: 500 });
   }
 }
 
@@ -122,10 +128,12 @@ export async function POST(request: Request) {
     const ALLOWED_VEHICLE_FIELDS = [
       "vehicle_id", "chassis_number", "hub_id", "assigned_rider_id", "assigned_at",
     ] as const;
-    type AllowedField = typeof ALLOWED_VEHICLE_FIELDS[number];
-    const vehicleData: Partial<Record<AllowedField, unknown>> = {};
+    type AllowedField = (typeof ALLOWED_VEHICLE_FIELDS)[number];
+    const vehicleData: VehicleUpdate = {};
     for (const field of ALLOWED_VEHICLE_FIELDS) {
-      if (field in body) vehicleData[field] = body[field];
+      if (field in body) {
+        (vehicleData as Record<AllowedField, VehicleRow[AllowedField] | undefined>)[field] = body[field] as VehicleRow[AllowedField];
+      }
     }
 
     // Derive who recorded this from the verified auth token.
@@ -155,30 +163,32 @@ export async function POST(request: Request) {
       if (error) throw error;
 
       // If this update includes a rider assignment AND a checklist, save it
-      if (vehicleData.assigned_rider_id && handover_checklist) {
+      const assignedRiderId = vehicleData.assigned_rider_id;
+      if (assignedRiderId && handover_checklist) {
         const checklist = handover_checklist as HandoverFormState;
+        const handoverRow: HandoverInsert = {
+          vehicle_id: id,
+          rider_id: assignedRiderId,
+          type: "assignment",
+          charger: checklist.charger,
+          battery: checklist.battery,
+          key: checklist.key,
+          mirrors: checklist.mirrors,
+          foot_mat: checklist.foot_mat,
+          odometer_reading: checklist.odometer_reading || null,
+          motor_number: checklist.motor_number || null,
+          helmet: checklist.helmet,
+          lights: checklist.lights,
+          horn: checklist.horn,
+          indicators: checklist.indicators,
+          tyres: checklist.tyres,
+          tools_kit: checklist.tools_kit,
+          notes: checklist.notes || null,
+          recorded_by: adminId,
+        };
         const { error: clErr } = await supabaseAdmin
           .from("vehicle_handover_checklists")
-          .insert({
-            vehicle_id:       id,
-            rider_id:         vehicleData.assigned_rider_id,
-            type:             "assignment",
-            charger:          checklist.charger,
-            battery:          checklist.battery,
-            key:              checklist.key,
-            mirrors:          checklist.mirrors,
-            foot_mat:         checklist.foot_mat,
-            odometer_reading: checklist.odometer_reading || null,
-            motor_number:     checklist.motor_number     || null,
-            helmet:           checklist.helmet,
-            lights:           checklist.lights,
-            horn:             checklist.horn,
-            indicators:       checklist.indicators,
-            tyres:            checklist.tyres,
-            tools_kit:        checklist.tools_kit,
-            notes:            checklist.notes            || null,
-            recorded_by:      adminId,
-          });
+          .insert(handoverRow);
         if (clErr) throw clErr;
       }
 
@@ -188,7 +198,7 @@ export async function POST(request: Request) {
       // ── Insert new vehicle ──────────────────────────────────────────────
       const { data, error } = await supabaseAdmin
         .from("vehicles")
-        .insert([vehicleData])
+        .insert(vehicleData as VehicleInsert)
         .select()
         .single();
 
@@ -196,15 +206,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: true, vehicle: data });
     }
   } catch (err: unknown) {
-    let message = "Unknown error";
-    if (err instanceof Error) {
-      message = err.message;
-    } else if (err && typeof err === "object" && 'message' in err) {
-      message = (err as any).message;
-    } else {
-      message = JSON.stringify(err);
-    }
-    return NextResponse.json({ error: message }, { status: 500 });
+    return NextResponse.json({ error: getErrorMessage(err) }, { status: 500 });
   }
 }
 
@@ -279,8 +281,7 @@ export async function PATCH(request: Request) {
 
     return NextResponse.json({ success: true });
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : "Unknown error";
-    return NextResponse.json({ error: message }, { status: 500 });
+    return NextResponse.json({ error: getErrorMessage(err) }, { status: 500 });
   }
 }
 
@@ -336,7 +337,6 @@ export async function DELETE(request: Request) {
 
     return NextResponse.json({ success: true });
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : "Unknown error";
-    return NextResponse.json({ error: message }, { status: 500 });
+    return NextResponse.json({ error: getErrorMessage(err) }, { status: 500 });
   }
 }

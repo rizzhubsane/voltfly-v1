@@ -78,6 +78,7 @@ export interface Database {
           driver_id: string | null
           valid_until: string | null
           outstanding_balance: number
+          payment_status: string | null
           created_at: string | null
         }
         Insert: {
@@ -90,6 +91,7 @@ export interface Database {
           driver_id?: string | null
           valid_until?: string | null
           outstanding_balance?: number
+          payment_status?: string | null
           created_at?: string | null
         }
         Update: {
@@ -102,6 +104,7 @@ export interface Database {
           driver_id?: string | null
           valid_until?: string | null
           outstanding_balance?: number
+          payment_status?: string | null
           created_at?: string | null
         }
         Relationships: [
@@ -557,7 +560,14 @@ export interface Database {
           rider_id: string
           type: string | null
           description: string | null
+          issue_description: string | null
+          vehicle_id: string | null
+          photo_url: string | null
           status: string
+          payment_status: string | null
+          total_parts_cost: number | null
+          charges: number | null
+          resolution_notes: string | null
           created_at: string | null
           resolved_at: string | null
         }
@@ -566,7 +576,14 @@ export interface Database {
           rider_id: string
           type?: string | null
           description?: string | null
+          issue_description?: string | null
+          vehicle_id?: string | null
+          photo_url?: string | null
           status?: string
+          payment_status?: string | null
+          total_parts_cost?: number | null
+          charges?: number | null
+          resolution_notes?: string | null
           created_at?: string | null
           resolved_at?: string | null
         }
@@ -575,13 +592,57 @@ export interface Database {
           rider_id?: string
           type?: string | null
           description?: string | null
+          issue_description?: string | null
+          vehicle_id?: string | null
+          photo_url?: string | null
           status?: string
+          payment_status?: string | null
+          total_parts_cost?: number | null
+          charges?: number | null
+          resolution_notes?: string | null
           created_at?: string | null
           resolved_at?: string | null
         }
         Relationships: [
           {
             foreignKeyName: "service_requests_rider_id_fkey"
+            columns: ["rider_id"]
+            referencedRelation: "riders"
+            referencedColumns: ["id"]
+          }
+        ]
+      }
+      notifications: {
+        Row: {
+          id: string
+          rider_id: string | null
+          type: string
+          title: string
+          message: string
+          channel: string
+          created_at: string | null
+        }
+        Insert: {
+          id?: string
+          rider_id?: string | null
+          type?: string
+          title?: string
+          message?: string
+          channel?: string
+          created_at?: string | null
+        }
+        Update: {
+          id?: string
+          rider_id?: string | null
+          type?: string
+          title?: string
+          message?: string
+          channel?: string
+          created_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "notifications_rider_id_fkey"
             columns: ["rider_id"]
             referencedRelation: "riders"
             referencedColumns: ["id"]

@@ -76,21 +76,44 @@ export async function GET(request: Request) {
 
     // ── Overdue riders ────────────────────────────────────────────────────
     if (type === "overdue") {
-      // Return riders with their valid_until + battery status.
-      // The client computes days_overdue = max(0, today - valid_until).
+      // Return riders with computed overdue metrics.
+      // All overdue calculations are done server-side so the admin UI doesn't
+      // need to compute them — preventing drift and ensuring consistency.
+      const DAILY_RATE = 250;
+      const GRACE_PERIOD_HOURS = 24; // rider is considered overdue after this window
+
       let overdueQuery = supabaseAdmin
         .from("riders")
-        .select("id, name, phone_1, status, valid_until")
-        .eq("status", "active");
+        .select("id, name, phone_1, status, valid_until, outstanding_balance")
+        .in("status", ["active", "suspended"]);
       // Hub managers only see their hub's riders.
       if (isHubManager) overdueQuery = overdueQuery.eq("hub_id", auth.admin.hub_id!);
 
       const { data: riders, error: ridersErr } = await overdueQuery;
       if (ridersErr) return NextResponse.json({ error: ridersErr.message }, { status: 500 });
 
-      const riderList = riders ?? [];
-      const riderIds  = riderList.map((r) => r.id);
+      const now = new Date();
+      const riderList = (riders ?? []).map((r) => {
+        const validUntil = r.valid_until ? new Date(r.valid_until) : null;
+        const msOverdue = validUntil ? Math.max(0, now.getTime() - validUntil.getTime()) : 0;
+        const daysOverdue = validUntil ? Math.floor(msOverdue / (1000 * 60 * 60 * 24)) : 0;
+        const hoursOverdue = validUntil ? Math.floor(msOverdue / (1000 * 60 * 60)) : 0;
+        const subscriptionOwed = daysOverdue * DAILY_RATE;
+        const estimatedOverdueAmount = Math.max(subscriptionOwed, r.outstanding_balance ?? 0);
+        const isOverdue = validUntil ? validUntil < now : false;
+        const autoBlockEligible = hoursOverdue >= GRACE_PERIOD_HOURS;
 
+        return {
+          ...r,
+          days_overdue: daysOverdue,
+          hours_overdue: hoursOverdue,
+          estimated_overdue_amount: estimatedOverdueAmount,
+          is_overdue: isOverdue,
+          auto_block_eligible: autoBlockEligible,
+        };
+      });
+
+      const riderIds = riderList.map((r) => r.id);
       if (riderIds.length === 0) return NextResponse.json({ riders: [], batteries: [] });
 
       const { data: batteries } = await supabaseAdmin

@@ -1,6 +1,11 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
 import { verifyAdmin } from "@/lib/auth";
+import type { Database } from "@/lib/types";
+import { getErrorMessage } from "@/lib/errorMessage";
+
+type RiderRow = Database["public"]["Tables"]["riders"]["Row"];
+type HubNameRow = { id: string; name: string };
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -40,30 +45,25 @@ export async function GET(request: Request) {
       serviceRequestsResult,
       depositsResult,
     ] = await Promise.all([
-      // Payments — the main revenue source
-      (supabaseAdmin as any)
+      supabaseAdmin
         .from("payments")
         .select("id, amount, plan_type, method, paid_at, created_at, status, rider_id")
         .order("created_at", { ascending: false }),
 
-      // Riders — for rider stats (include hub join via separate lookup)
-      (supabaseAdmin as any)
+      supabaseAdmin
         .from("riders")
         .select("id, status, hub_id, created_at, payment_status, valid_until")
         .order("created_at", { ascending: false }),
 
-      // KYC — for pending/approved/rejected counts
-      (supabaseAdmin as any)
+      supabaseAdmin
         .from("kyc")
         .select("id, kyc_status, created_at, rider_id"),
 
-      // Service requests — for spare-parts revenue (paid via Razorpay in the rider app)
-      (supabaseAdmin as any)
+      supabaseAdmin
         .from("service_requests")
         .select("id, status, payment_status, total_parts_cost, charges, created_at, resolved_at")
         .order("created_at", { ascending: false }),
 
-      // Security deposits — for deposit metrics
       supabaseAdmin
         .from("security_deposits")
         .select("id, rider_id, amount_paid, status, created_at"),
@@ -77,16 +77,19 @@ export async function GET(request: Request) {
     if (depositsResult.error) console.error("[reports] security_deposits:", depositsResult.error.message);
 
     // Enrich riders with hub names
-    const riders = (ridersResult.data as Record<string, any>[]) ?? [];
+    const riders = (ridersResult.data ?? []) as RiderRow[];
     const hubIds = Array.from(
       new Set(riders.map((r) => r.hub_id).filter((id): id is string => !!id))
     );
 
-    const hubsResult = hubIds.length > 0
-      ? await (supabaseAdmin as any).from("hubs").select("id, name").in("id", hubIds)
-      : { data: [] as { id: string; name: string }[] };
+    const hubsResult =
+      hubIds.length > 0
+        ? await supabaseAdmin.from("hubs").select("id, name").in("id", hubIds)
+        : { data: [] as HubNameRow[] };
 
-    const hubById = new Map(((hubsResult.data as Record<string, any>[]) ?? []).map((h) => [h.id, h.name]));
+    const hubById = new Map(
+      ((hubsResult.data ?? []) as HubNameRow[]).map((h) => [h.id, h.name])
+    );
 
     const ridersWithHub = riders.map((r) => ({
       ...r,
@@ -101,7 +104,7 @@ export async function GET(request: Request) {
       security_deposits: depositsResult.data          ?? [],
     });
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : "Unknown error";
+    const message = getErrorMessage(err);
     console.error("[reports] Unhandled error:", message);
     return NextResponse.json({ error: message }, { status: 500 });
   }

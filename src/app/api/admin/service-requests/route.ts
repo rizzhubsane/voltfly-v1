@@ -1,6 +1,12 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
 import { verifyAdmin } from "@/lib/auth";
+import { getErrorMessage } from "@/lib/errorMessage";
+import type { Database } from "@/lib/types";
+
+type ServiceRequestWithRiderJoin = Database["public"]["Tables"]["service_requests"]["Row"] & {
+  riders?: { name: string; phone_1: string } | null;
+};
 
 export const dynamic = "force-dynamic";
 
@@ -35,8 +41,7 @@ export async function GET(request: Request) {
       throw error;
     }
 
-    // Add nullable fields that may not exist in all schema versions
-    const formatted = (requests as any[]).map(r => ({
+    const formatted = (requests ?? []).map((r: ServiceRequestWithRiderJoin) => ({
       ...r,
       description: r.description ?? r.issue_description ?? null,
       issue_description: r.issue_description ?? r.description ?? null,
@@ -46,8 +51,7 @@ export async function GET(request: Request) {
 
     return NextResponse.json({ requests: formatted });
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : "Unknown error";
-    return NextResponse.json({ error: message }, { status: 500 });
+    return NextResponse.json({ error: getErrorMessage(err) }, { status: 500 });
   }
 }
 
@@ -60,18 +64,20 @@ export async function PATCH(request: Request) {
       return NextResponse.json({ error: "Missing admin config" }, { status: 500 });
     }
 
-    const { id, updates } = await request.json() as { id: string, updates: Record<string, any> };
+    const { id, updates } = await request.json() as {
+      id: string;
+      updates: Record<string, unknown>;
+    };
 
     if (!id || !updates) {
       return NextResponse.json({ error: "Missing id or updates parameter" }, { status: 400 });
     }
 
-    // Whitelist allowed fields to prevent arbitrary state updates (e.g. changing rider_id)
-    const allowedFields = ["status", "resolved_at", "payment_status", "resolution_notes", "charges"];
-    const sanitizedUpdates: Record<string, any> = {};
-    for (const key of Object.keys(updates)) {
-      if (allowedFields.includes(key)) {
-        sanitizedUpdates[key] = updates[key];
+    const allowedFields = ["status", "resolved_at", "payment_status", "resolution_notes", "charges"] as const;
+    const sanitizedUpdates: Database["public"]["Tables"]["service_requests"]["Update"] = {};
+    for (const key of allowedFields) {
+      if (key in updates) {
+        (sanitizedUpdates as Record<string, unknown>)[key] = updates[key];
       }
     }
 
@@ -88,8 +94,7 @@ export async function PATCH(request: Request) {
 
     return NextResponse.json({ success: true });
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : "Unknown error";
-    return NextResponse.json({ error: message }, { status: 500 });
+    return NextResponse.json({ error: getErrorMessage(err) }, { status: 500 });
   }
 }
 
@@ -148,7 +153,7 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ success: true, request: serviceRequest });
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : "Unknown error";
+    const message = getErrorMessage(err);
     console.error("[add-service-request] Error:", message);
     return NextResponse.json({ error: message }, { status: 500 });
   }

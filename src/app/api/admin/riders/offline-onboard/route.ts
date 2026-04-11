@@ -1,24 +1,21 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
 import { verifyAdmin } from "@/lib/auth";
+import { PRICING } from "@/lib/pricingConstants";
 
 /**
  * POST /api/admin/riders/offline-onboard
  *
- * Handles the "Offline Onboarding" flow where a rider pays partial cash
- * at the hub. The admin enters the cash received, and the system:
- *   1. Records the security deposit (₹2,000)
- *   2. Records onboarding fees (₹190 — implicit, not stored separately)
- *   3. Allocates remaining cash to rental credit
- *   4. Sets outstanding_balance = ₹3,800 - cashReceived
- *   5. Activates rider, sets valid_until, assigns hub
+ * Handles the "Offline Onboarding" flow where a rider pays partial or full
+ * cash at the hub. The admin enters the cash received, and the system:
+ *   1. Records the security deposit (₹2,000) in security_deposits table
+ *   2. Records the onboarding fee (₹190) as a paid payment record
+ *   3. Records any rental credit as a paid payment record
+ *   4. If outstanding_balance > 0, creates a PENDING payment record so the
+ *      debt is visible in the rider's payment history (NOT just a silent field)
+ *   5. Sets outstanding_balance = max(0, FULL_ONBOARDING - cashReceived)
+ *   6. Activates the rider: status='active', valid_until=now+grantDays, hub_id
  */
-
-const SECURITY_DEPOSIT = 2000;
-const ONBOARDING_FEES  = 190; // handling ₹10 + verification ₹180
-const FULL_ONBOARDING  = 3800;
-const MINIMUM_CASH     = SECURITY_DEPOSIT + ONBOARDING_FEES; // ₹2,190
-
 export async function POST(request: Request) {
   try {
     const auth = await verifyAdmin(request);
@@ -46,9 +43,11 @@ export async function POST(request: Request) {
     const cash = Number(cashReceived);
     const days = Number(grantDays);
 
-    if (cash < MINIMUM_CASH) {
+    if (cash < PRICING.MINIMUM_ONBOARD_CASH) {
       return NextResponse.json(
-        { error: `Minimum cash required is ₹${MINIMUM_CASH} (₹${SECURITY_DEPOSIT} deposit + ₹${ONBOARDING_FEES} fees)` },
+        {
+          error: `Minimum cash required is ₹${PRICING.MINIMUM_ONBOARD_CASH} (₹${PRICING.SECURITY_DEPOSIT} deposit + ₹${PRICING.ONBOARDING_FEES} fees)`,
+        },
         { status: 400 }
       );
     }
@@ -79,13 +78,15 @@ export async function POST(request: Request) {
     }
 
     // ── Calculate the split ──────────────────────────────────────────────
-    const rentalCredit = Math.max(0, cash - SECURITY_DEPOSIT - ONBOARDING_FEES);
-    const outstandingBalance = Math.max(0, FULL_ONBOARDING - cash);
+    const rentalCredit = Math.max(0, cash - PRICING.SECURITY_DEPOSIT - PRICING.ONBOARDING_FEES);
+    const outstandingBalance = Math.max(0, PRICING.FULL_ONBOARDING - cash);
 
     const now = new Date();
     const nowISO = now.toISOString();
     const validUntil = new Date(now.getTime() + days * 24 * 60 * 60 * 1000);
     const validUntilISO = validUntil.toISOString();
+
+    const onboardingNote = `Offline onboarding — ₹${cash} cash received. Deposit: ₹${PRICING.SECURITY_DEPOSIT}. Fee: ₹${PRICING.ONBOARDING_FEES}. Rental credit: ₹${rentalCredit}. Outstanding: ₹${outstandingBalance}.`;
 
     // ── Step 1: Record security deposit ──────────────────────────────────
     const { error: depositErr } = await supabaseAdmin
@@ -93,8 +94,8 @@ export async function POST(request: Request) {
       .upsert(
         {
           rider_id: riderId,
-          amount: SECURITY_DEPOSIT,
-          amount_paid: SECURITY_DEPOSIT,
+          amount: PRICING.SECURITY_DEPOSIT,
+          amount_paid: PRICING.SECURITY_DEPOSIT,
           status: "held",
           created_at: nowISO,
         },
@@ -103,36 +104,15 @@ export async function POST(request: Request) {
 
     if (depositErr) {
       console.error("[offline-onboard] security_deposits error:", depositErr.message);
+      // Non-fatal — continue
     }
 
-    // ── Step 2: Record rental payment (if any rental credit) ─────────────
-    if (rentalCredit > 0) {
-      const { error: paymentErr } = await supabaseAdmin
-        .from("payments")
-        .insert({
-          rider_id: riderId,
-          amount: rentalCredit,
-          plan_type: "custom",
-          method: "cash",
-          status: "paid",
-          paid_at: nowISO,
-          due_date: validUntilISO,
-          recorded_by: adminId,
-          notes: `Offline onboarding — ₹${cash} cash received. Rental credit: ₹${rentalCredit}. Outstanding: ₹${outstandingBalance}.`,
-          created_at: nowISO,
-        });
-
-      if (paymentErr) {
-        console.error("[offline-onboard] payment insert error:", paymentErr.message);
-      }
-    }
-
-    // ── Step 3: Record onboarding fee payment ────────────────────────────
+    // ── Step 2: Record onboarding fee payment ─────────────────────────────
     const { error: feeErr } = await supabaseAdmin
       .from("payments")
       .insert({
         rider_id: riderId,
-        amount: ONBOARDING_FEES,
+        amount: PRICING.ONBOARDING_FEES,
         plan_type: "onboarding_fee",
         method: "cash",
         status: "paid",
@@ -147,7 +127,53 @@ export async function POST(request: Request) {
       console.error("[offline-onboard] onboarding fee insert error:", feeErr.message);
     }
 
-    // ── Step 4: Activate rider ──────────────────────────────────────────
+    // ── Step 3: Record rental credit payment (if any) ─────────────────────
+    if (rentalCredit > 0) {
+      const { error: paymentErr } = await supabaseAdmin
+        .from("payments")
+        .insert({
+          rider_id: riderId,
+          amount: rentalCredit,
+          plan_type: "custom",
+          method: "cash",
+          status: "paid",
+          paid_at: nowISO,
+          due_date: validUntilISO,
+          recorded_by: adminId,
+          notes: onboardingNote,
+          created_at: nowISO,
+        });
+
+      if (paymentErr) {
+        console.error("[offline-onboard] payment insert error:", paymentErr.message);
+      }
+    }
+
+    // ── Step 4: Create a PENDING payment record for any outstanding balance ──
+    // This is the key fix: outstanding balance must be VISIBLE in payment history,
+    // not just a silent number on the rider row.
+    if (outstandingBalance > 0) {
+      const { error: pendingErr } = await supabaseAdmin
+        .from("payments")
+        .insert({
+          rider_id: riderId,
+          amount: outstandingBalance,
+          plan_type: "outstanding_balance",
+          method: "cash",
+          status: "pending",
+          paid_at: null,
+          due_date: validUntilISO, // expected to be cleared by the next payment
+          recorded_by: adminId,
+          notes: `Outstanding balance from offline onboarding. Rider paid ₹${cash} of ₹${PRICING.FULL_ONBOARDING} due. Remaining: ₹${outstandingBalance}.`,
+          created_at: nowISO,
+        });
+
+      if (pendingErr) {
+        console.error("[offline-onboard] pending outstanding insert error:", pendingErr.message);
+      }
+    }
+
+    // ── Step 5: Activate rider ────────────────────────────────────────────
     const riderUpdate: Record<string, unknown> = {
       status: "active",
       valid_until: validUntilISO,
@@ -175,8 +201,8 @@ export async function POST(request: Request) {
       success: true,
       rider_id: riderId,
       cash_received: cash,
-      security_deposit: SECURITY_DEPOSIT,
-      onboarding_fees: ONBOARDING_FEES,
+      security_deposit: PRICING.SECURITY_DEPOSIT,
+      onboarding_fees: PRICING.ONBOARDING_FEES,
       rental_credit: rentalCredit,
       outstanding_balance: outstandingBalance,
       valid_until: validUntilISO,

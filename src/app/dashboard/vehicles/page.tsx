@@ -207,7 +207,13 @@ export default function VehiclesPage() {
       );
     }
 
-    return list;
+    return [...list].sort((a, b) => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const idA = ((a as any).vehicle_id || "").toString().toUpperCase();
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const idB = ((b as any).vehicle_id || "").toString().toUpperCase();
+      return idA.localeCompare(idB, undefined, { numeric: true, sensitivity: 'base' });
+    });
   }, [vehicles, search, hubFilter, statusFilter, isSuperAdmin]);
 
   // ── Stats ────────────────────────────────────────────────────────────────
@@ -258,8 +264,7 @@ export default function VehiclesPage() {
   const openEdit = (vehicle: VehicleWithDetails) => {
     setEditingVehicle(vehicle);
     setFormValues({
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      vehicle_id: (vehicle as any).vehicle_id || "",
+      vehicle_id: vehicle.vehicle_id || "",
       chassis_number: vehicle.chassis_number || "",
       hub_id: vehicle.hub_id,
     });
@@ -558,7 +563,7 @@ export default function VehiclesPage() {
               <AlertTriangle className="h-5 w-5" /> Delete Vehicle
             </DialogTitle>
             <DialogDescription>
-              Permanently delete <strong>{(deleteTarget as any)?.vehicle_id || deleteTarget?.chassis_number}</strong>?
+              Permanently delete <strong>{deleteTarget?.vehicle_id || deleteTarget?.chassis_number}</strong>?
               This will also remove all handover checklists for this vehicle. This cannot be undone.
             </DialogDescription>
           </DialogHeader>

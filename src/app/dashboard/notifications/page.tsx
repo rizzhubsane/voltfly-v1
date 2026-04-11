@@ -4,8 +4,6 @@ import { adminFetch } from "@/lib/adminFetch";
 
 import { useState, useEffect, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { supabase } from "@/lib/supabase";
-import { useAdmin } from "@/context/AdminContext";
 import { format } from "date-fns";
 import { toast } from "sonner";
 

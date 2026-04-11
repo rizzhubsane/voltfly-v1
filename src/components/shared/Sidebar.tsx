@@ -40,7 +40,6 @@ const navItems: NavItem[] = [
   },
   { name: "Vehicles", href: "/dashboard/vehicles", icon: Truck },
   { name: "Payments", href: "/dashboard/payments", icon: CreditCard },
-  { name: "Security Deposits", href: "/dashboard/deposits", icon: Shield },
   { name: "Service Requests", href: "/dashboard/service", icon: Wrench },
   {
     name: "Notifications",

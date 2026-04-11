@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
 import { verifyAdmin } from "@/lib/auth";
+import type { Database } from "@/lib/types";
 
 const KYC_ALLOWED_TEXT_FIELDS = [
   "aadhaar_number", "pan_number", "address_local", "address_village",
@@ -99,6 +100,20 @@ export async function GET(request: Request) {
       driver_id: (r as Record<string, unknown>).driver_id ?? null,
     }));
 
+    riders.sort((a, b) => {
+      const va = a.vehicle_id as string | null;
+      const vb = b.vehicle_id as string | null;
+      if (!va && !vb) return 0;
+      if (!va) return 1;
+      if (!vb) return -1;
+      const ma = /^VFEL(\d+)$/i.exec(va.trim());
+      const mb = /^VFEL(\d+)$/i.exec(vb.trim());
+      if (ma && mb) return parseInt(ma[1], 10) - parseInt(mb[1], 10);
+      if (ma && !mb) return -1;
+      if (!ma && mb) return 1;
+      return va.localeCompare(vb);
+    });
+
     return NextResponse.json({ riders });
   } catch (error: unknown) {
     const message =
@@ -175,8 +190,7 @@ export async function POST(request: Request) {
       );
     }
 
-    // Insert rider
-    const riderInsert: Record<string, unknown> = {
+    const riderInsert: Database["public"]["Tables"]["riders"]["Insert"] = {
       name: name.trim(),
       phone_1: phone_1.trim(),
       phone_2: phone_2?.trim() || null,
@@ -184,10 +198,8 @@ export async function POST(request: Request) {
       driver_id: driver_id?.trim() || null,
       status: status || "pending_kyc",
       outstanding_balance: 0,
+      ...(created_at ? { created_at } : {}),
     };
-    if (created_at) {
-      riderInsert.created_at = created_at;
-    }
 
     const { data: rider, error: riderError } = await supabaseAdmin
       .from("riders")
@@ -197,9 +209,8 @@ export async function POST(request: Request) {
 
     if (riderError) throw riderError;
 
-    // If any KYC text fields were provided, create the kyc row
     if (kyc && rider) {
-      const kycData: Record<string, unknown> = {
+      const kycData: Database["public"]["Tables"]["kyc"]["Insert"] = {
         rider_id: rider.id,
         kyc_status: status === "kyc_approved" ? "approved" : "pending",
       };
@@ -207,7 +218,7 @@ export async function POST(request: Request) {
       for (const field of KYC_ALLOWED_TEXT_FIELDS) {
         const val = (kyc as Record<string, unknown>)[field];
         if (typeof val === "string" && val.trim()) {
-          kycData[field] = val.trim();
+          (kycData as Record<string, unknown>)[field] = val.trim();
         }
       }
 
@@ -264,19 +275,12 @@ export async function DELETE(request: Request) {
       return NextResponse.json({ error: "Rider not found" }, { status: 404 });
     }
 
-    // Cascade delete in dependency order
-    const tables = [
-      "battery_events_log",
-      "battery_assignments",
-      "service_requests",
-      "payments",
-      "security_deposits",
-      "kyc",
-    ] as const;
-
-    for (const table of tables) {
-      await supabaseAdmin.from(table).delete().eq("rider_id", id);
-    }
+    await supabaseAdmin.from("battery_events_log").delete().eq("rider_id", id);
+    await supabaseAdmin.from("battery_assignments").delete().eq("current_rider_id", id);
+    await supabaseAdmin.from("service_requests").delete().eq("rider_id", id);
+    await supabaseAdmin.from("payments").delete().eq("rider_id", id);
+    await supabaseAdmin.from("security_deposits").delete().eq("rider_id", id);
+    await supabaseAdmin.from("kyc").delete().eq("rider_id", id);
 
     // Unassign vehicle (don't delete the vehicle itself)
     await supabaseAdmin

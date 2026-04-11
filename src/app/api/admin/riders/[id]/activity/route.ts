@@ -1,6 +1,10 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
 import { verifyAdmin } from "@/lib/auth";
+import { getErrorMessage } from "@/lib/errorMessage";
+import type { Database } from "@/lib/types";
+
+type PaymentRow = Database["public"]["Tables"]["payments"]["Row"];
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -64,8 +68,7 @@ export async function GET(
         .maybeSingle(),
     ]);
 
-    // Format payments
-    const payments = (paymentsRes.data || []).map((p: any) => ({
+    const payments = (paymentsRes.data || []).map((p: PaymentRow) => ({
       ...p,
       payment_method: p.method,
       payment_date: p.paid_at || p.created_at,
@@ -79,7 +82,6 @@ export async function GET(
       kyc: kycRes.data || null,
     });
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : "Unknown error";
-    return NextResponse.json({ error: message }, { status: 500 });
+    return NextResponse.json({ error: getErrorMessage(err) }, { status: 500 });
   }
 }

@@ -36,10 +36,13 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Calendar } from "@/components/ui/calendar";
 import { cn } from "@/lib/utils";
 
+import { PRICING } from "@/lib/pricingConstants";
+
 const formSchema = z.object({
   riderId: z.string().min(1, "Rider is required"),
   amount: z.number().min(1, "Amount must be greater than 0"),
   planType: z.string().min(1, "Plan type is required"),
+  cycleDays: z.number().int().min(1).optional(),
   paymentDate: z.date(),
   notes: z.string().optional(),
 });
@@ -47,12 +50,13 @@ const formSchema = z.object({
 type FormValues = z.infer<typeof formSchema>;
 
 const PLANS = [
-  { id: "daily", label: "Daily (₹250)", amount: 250 },
-  { id: "weekly", label: "Weekly (₹1610)", amount: 1610 },
-  { id: "monthly", label: "Monthly (₹6900)", amount: 6900 },
-  { id: "service", label: "Spare Parts / Service", amount: 0 },
-  { id: "security_deposit", label: "Security Deposit", amount: 0 },
-  { id: "custom", label: "Other / Custom", amount: 0 },
+  { id: "daily",            label: `Daily (₹${PRICING.DAILY_RATE})`,           amount: PRICING.DAILY_RATE,     days: 1 },
+  { id: "weekly",           label: `Weekly (₹${PRICING.WEEKLY_RATE})`,         amount: PRICING.WEEKLY_RATE,    days: 7 },
+  { id: "monthly",          label: `Monthly (₹${PRICING.MONTHLY_RATE})`,       amount: PRICING.MONTHLY_RATE,   days: 30 },
+  { id: "onboarding_fee",   label: `Onboarding Fee (₹${PRICING.ONBOARDING_FEES})`, amount: PRICING.ONBOARDING_FEES, days: 0 },
+  { id: "service",          label: "Spare Parts / Service",                    amount: 0,                      days: 0 },
+  { id: "security_deposit", label: "Security Deposit",                         amount: 0,                      days: 0 },
+  { id: "custom",           label: "Custom (enter days)",                      amount: 0,                      days: 0 },
 ];
 
 interface LogCashPaymentDrawerProps {
@@ -66,6 +70,10 @@ export function LogCashPaymentDrawer({ adminId, onSuccess }: LogCashPaymentDrawe
   const [isSearching, setIsSearching] = useState(false);
   const [selectedRider, setSelectedRider] = useState<{ id: string; name: string } | null>(null);
 
+  const [isCustom, setIsCustom] = useState(false);
+  const [isOnboardingFee, setIsOnboardingFee] = useState(false);
+  const [customDaysInput, setCustomDaysInput] = useState("1");
+
   const queryClient = useQueryClient();
 
   const form = useForm<FormValues>({
@@ -74,6 +82,7 @@ export function LogCashPaymentDrawer({ adminId, onSuccess }: LogCashPaymentDrawe
       riderId: "",
       amount: 0,
       planType: "",
+      cycleDays: undefined,
       paymentDate: new Date(),
       notes: "",
     },
@@ -113,14 +122,57 @@ export function LogCashPaymentDrawer({ adminId, onSuccess }: LogCashPaymentDrawe
   // ── Plan Selection ────────────────────────────────────────────────────────
   const handlePlanChange = (planId: string) => {
     const plan = PLANS.find(p => p.id === planId);
-    if (plan) {
+    const isCustomPlan = planId === "custom";
+    setIsCustom(isCustomPlan);
+    setIsOnboardingFee(planId === "onboarding_fee");
+    if (plan && plan.amount > 0) {
       form.setValue("amount", plan.amount);
+      form.setValue("cycleDays", plan.days > 0 ? plan.days : undefined);
+    } else {
+      form.setValue("amount", 0);
+      form.setValue("cycleDays", undefined);
     }
   };
+
+  // When custom days changes, recompute the amount
+  const handleCustomDaysChange = (val: string) => {
+    setCustomDaysInput(val);
+    const days = parseInt(val) || 0;
+    if (days >= 1) {
+      form.setValue("amount", days * PRICING.DAILY_RATE);
+      form.setValue("cycleDays", days);
+    }
+  };
+
+  // ── Real-time ledger guardrail ───────────────────────────────────────────────
+  // If admin enters >= ₹3,800 on any plan other than security_deposit,
+  // it almost certainly means they collected the onboarding bundle and are
+  // using the wrong drawer. Block submission with a hard error.
+  const watchedAmount = form.watch("amount");
+  const watchedPlanType = form.watch("planType");
+  const looksLikeOnboarding =
+    watchedAmount >= PRICING.FULL_ONBOARDING &&
+    watchedPlanType !== "security_deposit" &&
+    watchedPlanType !== "";
 
   // ── Submit ───────────────────────────────────────────────────────────────
   const logCashMutation = useMutation({
     mutationFn: async (values: FormValues) => {
+      // Hard guard: block onboarding-sized amounts through this drawer
+      if (values.amount >= PRICING.FULL_ONBOARDING && values.planType !== "security_deposit") {
+        throw new Error(
+          `₹${values.amount.toLocaleString("en-IN")} looks like an onboarding bundle. Use the Offline Onboard flow to split it correctly into deposit + fee + rental.`
+        );
+      }
+
+      // For custom plan, cycleDays comes from the explicit days input (not derived from amount)
+      let cycleDays: number | undefined = values.cycleDays;
+      if (values.planType === "custom" && !cycleDays) {
+        const parsedDays = parseInt(customDaysInput) || 0;
+        if (parsedDays < 1) throw new Error("Please enter a valid number of days for custom plan");
+        cycleDays = parsedDays;
+      }
+
       const res = await adminFetch("/api/admin/payments/cash", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -128,7 +180,7 @@ export function LogCashPaymentDrawer({ adminId, onSuccess }: LogCashPaymentDrawe
           riderId: values.riderId,
           amount: values.amount,
           planType: values.planType,
-          cycleDays: values.planType === 'custom' ? Math.max(1, Math.floor(values.amount / 250)) : undefined,
+          cycleDays,
           paidAt: values.paymentDate.toISOString(),
           notes: values.notes,
           adminId: adminId,
@@ -148,6 +200,9 @@ export function LogCashPaymentDrawer({ adminId, onSuccess }: LogCashPaymentDrawe
       await queryClient.invalidateQueries({ queryKey: ["overdue-riders"] });
       form.reset();
       setSelectedRider(null);
+      setIsCustom(false);
+      setIsOnboardingFee(false);
+      setCustomDaysInput("1");
       onSuccess();
     },
     onError: (error: unknown) => {
@@ -170,7 +225,22 @@ export function LogCashPaymentDrawer({ adminId, onSuccess }: LogCashPaymentDrawe
 
       <Form {...form}>
         <form onSubmit={form.handleSubmit((v) => logCashMutation.mutate(v))} className="space-y-6">
-          
+
+          {/* ── Hard ledger block: amount looks like onboarding bundle ── */}
+          {looksLikeOnboarding && (
+            <div className="flex items-start gap-2.5 rounded-xl border border-red-200 bg-red-50 p-3">
+              <AlertTriangle className="h-4 w-4 text-red-600 mt-0.5 shrink-0" />
+              <div>
+                <p className="text-xs font-semibold text-red-800">
+                  ₹{watchedAmount.toLocaleString("en-IN")} — This looks like an onboarding bundle
+                </p>
+                <p className="text-[11px] text-red-700 mt-0.5">
+                  You cannot log ₹{PRICING.FULL_ONBOARDING.toLocaleString("en-IN")}+ as a single cash payment. The onboarding bundle (<strong>₹{PRICING.SECURITY_DEPOSIT.toLocaleString("en-IN")} deposit + ₹{PRICING.ONBOARDING_FEES} fee + ₹{PRICING.WEEKLY_RATE.toLocaleString("en-IN")} rental</strong>) must be split via the <strong>Offline Onboard</strong> drawer. Close this and use that instead.
+                </p>
+              </div>
+            </div>
+          )}
+
           {/* Rider Selection */}
           <div className="space-y-2">
             <FormLabel className="text-xs font-bold uppercase tracking-wider text-slate-500">Rider *</FormLabel>
@@ -260,6 +330,44 @@ export function LogCashPaymentDrawer({ adminId, onSuccess }: LogCashPaymentDrawe
               </FormItem>
             )}
           />
+
+          {/* Onboarding fee warning — shown when 'onboarding_fee' is selected */}
+          {isOnboardingFee && (
+            <div className="flex items-start gap-2.5 rounded-xl border border-amber-200 bg-amber-50 p-3">
+              <AlertTriangle className="h-4 w-4 text-amber-600 mt-0.5 shrink-0" />
+              <div>
+                <p className="text-xs font-semibold text-amber-800">Onboarding Fee only — ₹{PRICING.ONBOARDING_FEES}</p>
+                <p className="text-[11px] text-amber-700 mt-0.5">
+                  This records <strong>only the ₹{PRICING.ONBOARDING_FEES} handling fee</strong>. If this is a new rider's first payment (₹{PRICING.FULL_ONBOARDING.toLocaleString("en-IN")} bundle), use the{" "}
+                  <strong>Offline Onboard</strong> flow instead — it automatically splits the deposit, fee, and rental and activates the rider.
+                </p>
+              </div>
+            </div>
+          )}
+
+          {/* Custom Days Input — only shown for the 'custom' plan */}
+          {isCustom && (
+            <div className="space-y-2">
+              <FormLabel className="text-xs font-bold uppercase tracking-wider text-slate-500">
+                Number of Days *
+              </FormLabel>
+              <div className="flex items-center gap-3">
+                <Input
+                  type="number"
+                  min="1"
+                  max="365"
+                  placeholder="e.g. 3"
+                  value={customDaysInput}
+                  onChange={(e) => handleCustomDaysChange(e.target.value)}
+                  className="h-10 rounded-xl border-slate-200 w-28 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                />
+                <span className="text-sm text-muted-foreground">
+                  days × ₹{PRICING.DAILY_RATE} = <strong>₹{(parseInt(customDaysInput) || 0) * PRICING.DAILY_RATE}</strong>
+                </span>
+              </div>
+              <p className="text-[10px] text-muted-foreground">Amount is auto-computed. You may override it below if needed.</p>
+            </div>
+          )}
 
           <div className="grid grid-cols-2 gap-4">
             {/* Amount */}
@@ -354,14 +462,16 @@ export function LogCashPaymentDrawer({ adminId, onSuccess }: LogCashPaymentDrawe
           <div className="pt-4">
             <Button 
               type="submit" 
-              className="w-full h-12 text-base font-bold bg-[#0D2D6B] hover:bg-[#0D2D6B]/90 rounded-xl shadow-lg shadow-blue-900/10 transition-all active:scale-[0.98]"
-              disabled={logCashMutation.isPending}
+              className="w-full h-12 text-base font-bold bg-[#0D2D6B] hover:bg-[#0D2D6B]/90 rounded-xl shadow-lg shadow-blue-900/10 transition-all active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed"
+              disabled={logCashMutation.isPending || looksLikeOnboarding}
             >
               {logCashMutation.isPending ? (
                 <>
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                   Processing...
                 </>
+              ) : looksLikeOnboarding ? (
+                "Use Offline Onboard Instead →"
               ) : (
                 "Log Cash Payment"
               )}

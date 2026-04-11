@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
 import { verifyAdmin } from "@/lib/auth";
+import { getErrorMessage, logPostgrestError } from "@/lib/errorMessage";
 
 export const dynamic = "force-dynamic";
 
@@ -68,6 +69,31 @@ export async function PATCH(
         sanitized.created_at = d.toISOString();
       }
 
+      // ── Guard: prevent direct status → 'active' bypass without valid_until ──
+      // Setting a rider to 'active' without going through offline onboard means
+      // they have no valid_until → they never appear as overdue → free rides.
+      // The correct path is: kyc_approved → use Offline Onboard flow → active.
+      if (sanitized.status === "active") {
+        const { data: currentRider } = await supabaseAdmin
+          .from("riders")
+          .select("valid_until")
+          .eq("id", riderId)
+          .single();
+
+        const hasValidUntil = !!currentRider?.valid_until;
+        const settingValidUntilNow = false; // valid_until cannot be set via this route
+
+        if (!hasValidUntil && !settingValidUntilNow) {
+          return NextResponse.json(
+            {
+              error:
+                "Cannot set status to 'active' without a valid subscription. Use the Offline Onboard flow instead to activate this rider.",
+            },
+            { status: 400 }
+          );
+        }
+      }
+
       if (Object.keys(sanitized).length > 0) {
         const { error } = await supabaseAdmin
           .from("riders")
@@ -87,13 +113,15 @@ export async function PATCH(
       }
 
       if (Object.keys(sanitizedKyc).length > 0) {
-        // Check if a kyc row already exists
-        const { data: existing } = await supabaseAdmin
+        const { data: existingRows, error: kycLookupErr } = await supabaseAdmin
           .from("kyc")
           .select("id")
           .eq("rider_id", riderId)
-          .maybeSingle();
+          .limit(1);
 
+        if (kycLookupErr) throw kycLookupErr;
+
+        const existing = existingRows?.[0];
         if (existing) {
           const { error } = await supabaseAdmin
             .from("kyc")
@@ -111,7 +139,8 @@ export async function PATCH(
 
     return NextResponse.json({ success: true });
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : "Unknown error";
+    logPostgrestError("patch-rider", err);
+    const message = getErrorMessage(err);
     console.error("[patch-rider] Error:", message);
     return NextResponse.json({ error: message }, { status: 500 });
   }
