@@ -58,7 +58,7 @@ interface RiderLite {
   name: string;
   status: string;
   created_at: string | null;
-  valid_until: string | null;
+  wallet_balance: number | null;
 }
 
 interface PaymentLite {
@@ -201,7 +201,7 @@ export default function DashboardOverview() {
       const aggregate: DashboardStats = {
         activeRiders: ridersTyped.filter(r => r.status === "active" && filterByHub(r)).length,
         pendingKyc: ((kycCounts || []) as KycLite[]).filter(k => k.kyc_status === "submitted" && filterByHub(k)).length,
-        overduePayments: ridersTyped.filter(r => r.status === "active" && r.valid_until && new Date(r.valid_until) < now && filterByHub(r)).length,
+        overduePayments: ridersTyped.filter(r => r.status === "active" && r.wallet_balance !== null && r.wallet_balance <= 0 && filterByHub(r)).length,
         batteriesBlocked: ((batteryCounts || []) as Array<{ rider_id: string; status: string | null }>).filter(b => b.status === "blocked" && filterByHub(b)).length,
         openServiceRequests: ((serviceCounts || []) as ServiceLite[]).filter(s => s.status === "open" && filterByHub(s)).length,
         vehiclesAvailable: ((vehicles || []) as VehicleLite[]).filter(v => !v.assigned_rider_id && filterByHub(v)).length,
@@ -222,7 +222,7 @@ export default function DashboardOverview() {
           hubName: h.name,
           activeRiders: ridersTyped.filter(r => r.status === "active" && r.hub_id === hubId).length,
           pendingKyc: ((kycCounts || []) as KycLite[]).filter(k => k.kyc_status === "submitted" && riderHubById.get(k.rider_id) === hubId).length,
-          overduePayments: ridersTyped.filter(r => r.status === "active" && r.valid_until && new Date(r.valid_until) < now && r.hub_id === hubId).length,
+          overduePayments: ridersTyped.filter(r => r.status === "active" && r.wallet_balance !== null && r.wallet_balance <= 0 && r.hub_id === hubId).length,
           batteriesBlocked: ((batteryCounts || []) as Array<{ rider_id: string; status: string | null }>).filter(b => b.status === "blocked" && riderHubById.get(b.rider_id) === hubId).length,
           openServiceRequests: ((serviceCounts || []) as ServiceLite[]).filter(s => s.status === "open" && riderHubById.get(s.rider_id) === hubId).length,
           vehiclesAvailable: ((vehicles || []) as VehicleLite[]).filter(v => !v.assigned_rider_id && v.hub_id === hubId).length,

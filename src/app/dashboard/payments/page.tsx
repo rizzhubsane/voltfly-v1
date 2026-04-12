@@ -140,8 +140,9 @@ async function fetchOverdueRiders(): Promise<OverdueRider[]> {
     id: string;
     name: string;
     phone_1: string;
-    valid_until: string | null;
-    outstanding_balance?: number | null;
+    days_overdue: number;
+    estimated_overdue_amount: number;
+    wallet_balance: number | null;
   };
   type BatteryRaw = { current_rider_id: string; status: string; driver_id: string | null };
 
@@ -152,35 +153,14 @@ async function fetchOverdueRiders(): Promise<OverdueRider[]> {
     batteries.map((b) => [b.current_rider_id, { status: b.status, driver_id: b.driver_id }])
   );
 
-  const DAILY_RATE = 250; // ₹250 per day
-  const todayStart = startOfDay(new Date());
-
   const computed: OverdueRider[] = riders.map((r) => {
-    const balance = r.outstanding_balance ?? 0;
-    let daysOverdue = 0;
-    let subscriptionOwed = 0;
-    const lastPaymentDate: string | null = r.valid_until;
-
-    if (r.valid_until) {
-      const validUntilDay = startOfDay(new Date(r.valid_until));
-      if (isAfter(todayStart, validUntilDay)) {
-        daysOverdue = differenceInCalendarDays(todayStart, validUntilDay);
-        subscriptionOwed = daysOverdue * DAILY_RATE;
-      }
-    }
-
-    const amountOwed = Math.max(subscriptionOwed, balance);
-    if (balance > 0 && daysOverdue === 0) {
-      daysOverdue = Math.max(1, Math.ceil(balance / DAILY_RATE));
-    }
-
     return {
       id: r.id,
       name: r.name,
       phone_1: r.phone_1,
-      days_overdue: daysOverdue,
-      amount_owed: amountOwed,
-      last_payment_date: lastPaymentDate,
+      days_overdue: Math.max(1, r.days_overdue),
+      amount_owed: r.estimated_overdue_amount,
+      last_payment_date: null,
       battery_status: batteryByRiderId.get(r.id)?.status || "unknown",
       driver_id: batteryByRiderId.get(r.id)?.driver_id || null,
     };

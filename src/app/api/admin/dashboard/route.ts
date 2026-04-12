@@ -46,7 +46,7 @@ export async function GET(request: Request) {
 
       supabaseAdmin
         .from("riders")
-        .select("id, name, status, hub_id, created_at, valid_until"),
+        .select("id, name, status, hub_id, created_at, wallet_balance"),
 
       supabaseAdmin
         .from("kyc")

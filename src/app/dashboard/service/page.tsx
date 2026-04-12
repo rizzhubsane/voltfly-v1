@@ -384,7 +384,7 @@ export default function ServiceRequestsPage() {
                   ))}
                 </div>
                 <div className="pt-2 mt-2 border-t border-emerald-100 flex items-center justify-between font-bold text-emerald-900">
-                  <span>Total Paid (Razorpay)</span>
+                  <span>Total Amount Paid</span>
                   <span>₹{selected.total_parts_cost}</span>
                 </div>
               </div>
@@ -414,33 +414,36 @@ export default function ServiceRequestsPage() {
               </select>
             </div>
 
-            {/* Resolution Notes */}
-            <div className="space-y-1.5">
-              <label className="text-sm font-medium">Resolution Notes</label>
-              <Textarea
-                placeholder="Describe what was done to resolve the issue..."
-                value={resolutionNotes}
-                onChange={(e) => setResolutionNotes(e.target.value)}
-                rows={3}
-              />
-            </div>
+            {/* Resolution Notes & Charges (Only for general issues) */}
+            {!(selected?.parts_selected && Array.isArray(selected.parts_selected) && selected.parts_selected.length > 0) && (
+              <>
+                <div className="space-y-1.5">
+                  <label className="text-sm font-medium">Resolution Notes</label>
+                  <Textarea
+                    placeholder="Describe what was done to resolve the issue..."
+                    value={resolutionNotes}
+                    onChange={(e) => setResolutionNotes(e.target.value)}
+                    rows={3}
+                  />
+                </div>
 
-            {/* Charges */}
-            <div className="space-y-1.5">
-              <label className="text-sm font-medium">Charges (₹)</label>
-              <div className="relative">
-                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">₹</span>
-                <Input
-                  type="number"
-                  placeholder="0"
-                  className="pl-7"
-                  value={charges}
-                  onChange={(e) => setCharges(e.target.value)}
-                  min="0"
-                />
-              </div>
-              <p className="text-xs text-muted-foreground">Leave 0 if no charge to rider</p>
-            </div>
+                <div className="space-y-1.5">
+                  <label className="text-sm font-medium">Charges (₹)</label>
+                  <div className="relative">
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">₹</span>
+                    <Input
+                      type="number"
+                      placeholder="0"
+                      className="pl-7"
+                      value={charges}
+                      onChange={(e) => setCharges(e.target.value)}
+                      min="0"
+                    />
+                  </div>
+                  <p className="text-xs text-muted-foreground">Leave 0 if no charge to rider</p>
+                </div>
+              </>
+            )}
 
             {/* Submit */}
             <div className="flex flex-col gap-3 pt-4 border-t">

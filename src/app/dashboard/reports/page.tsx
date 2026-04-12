@@ -55,7 +55,7 @@ interface RiderRow {
   hub_id: string | null;
   created_at: string | null;
   payment_status: string | null;
-  valid_until: string | null;
+  wallet_balance: number | null;
   hubs: { name: string } | null;
 }
 
@@ -293,13 +293,12 @@ export default function ReportsPage() {
       (r) => r.created_at && new Date(r.created_at) >= monthStart
     ).length;
 
-    // Overdue (payment_status == pending AND valid_until has passed)
+    // Overdue (wallet_balance <= 0)
     const today = now;
     const overdue = list.filter(
       (r) =>
         r.payment_status === "pending" &&
-        r.valid_until &&
-        new Date(r.valid_until) < today
+        r.wallet_balance !== null && r.wallet_balance <= 0
     ).length;
 
     return { total, byStatus, topHubs, newThisMonth, overdue };
@@ -483,7 +482,7 @@ export default function ReportsPage() {
           <MetricCard
             title="Overdue Riders"
             value={riderStats.overdue.toString()}
-            sub="Payment past valid_until date"
+            sub="Wallet Balance Depleted"
             icon={AlertTriangle}
             colorClass={riderStats.overdue > 0 ? "text-red-600 bg-red-50" : "text-slate-500 bg-slate-50"}
           />

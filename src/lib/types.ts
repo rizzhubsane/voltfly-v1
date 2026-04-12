@@ -76,7 +76,7 @@ export interface Database {
           status: string
           hub_id: string | null
           driver_id: string | null
-          valid_until: string | null
+          wallet_balance?: number | null
           outstanding_balance: number
           payment_status: string | null
           created_at: string | null
@@ -89,7 +89,7 @@ export interface Database {
           status?: string
           hub_id?: string | null
           driver_id?: string | null
-          valid_until?: string | null
+          wallet_balance?: number | null
           outstanding_balance?: number
           payment_status?: string | null
           created_at?: string | null
@@ -102,7 +102,7 @@ export interface Database {
           status?: string
           hub_id?: string | null
           driver_id?: string | null
-          valid_until?: string | null
+          wallet_balance?: number | null
           outstanding_balance?: number
           payment_status?: string | null
           created_at?: string | null

@@ -52,7 +52,7 @@ export async function GET(request: Request) {
 
       supabaseAdmin
         .from("riders")
-        .select("id, status, hub_id, created_at, payment_status, valid_until")
+        .select("id, status, hub_id, created_at, payment_status, wallet_balance")
         .order("created_at", { ascending: false }),
 
       supabaseAdmin

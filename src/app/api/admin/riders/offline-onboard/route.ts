@@ -14,7 +14,7 @@ import { PRICING } from "@/lib/pricingConstants";
  *   4. If outstanding_balance > 0, creates a PENDING payment record so the
  *      debt is visible in the rider's payment history (NOT just a silent field)
  *   5. Sets outstanding_balance = max(0, FULL_ONBOARDING - cashReceived)
- *   6. Activates the rider: status='active', valid_until=now+grantDays, hub_id
+ *   6. Activates the rider: status='active', wallet_balance=rentalCredit, hub_id
  */
 export async function POST(request: Request) {
   try {
@@ -83,8 +83,6 @@ export async function POST(request: Request) {
 
     const now = new Date();
     const nowISO = now.toISOString();
-    const validUntil = new Date(now.getTime() + days * 24 * 60 * 60 * 1000);
-    const validUntilISO = validUntil.toISOString();
 
     const onboardingNote = `Offline onboarding — ₹${cash} cash received. Deposit: ₹${PRICING.SECURITY_DEPOSIT}. Fee: ₹${PRICING.ONBOARDING_FEES}. Rental credit: ₹${rentalCredit}. Outstanding: ₹${outstandingBalance}.`;
 
@@ -138,7 +136,7 @@ export async function POST(request: Request) {
           method: "cash",
           status: "paid",
           paid_at: nowISO,
-          due_date: validUntilISO,
+          
           recorded_by: adminId,
           notes: onboardingNote,
           created_at: nowISO,
@@ -162,7 +160,7 @@ export async function POST(request: Request) {
           method: "cash",
           status: "pending",
           paid_at: null,
-          due_date: validUntilISO, // expected to be cleared by the next payment
+           // expected to be cleared by the next payment
           recorded_by: adminId,
           notes: `Outstanding balance from offline onboarding. Rider paid ₹${cash} of ₹${PRICING.FULL_ONBOARDING} due. Remaining: ₹${outstandingBalance}.`,
           created_at: nowISO,
@@ -176,8 +174,8 @@ export async function POST(request: Request) {
     // ── Step 5: Activate rider ────────────────────────────────────────────
     const riderUpdate: Record<string, unknown> = {
       status: "active",
-      valid_until: validUntilISO,
-      outstanding_balance: outstandingBalance,
+      wallet_balance: rentalCredit - outstandingBalance,
+      daily_deduction_rate: (rentalCredit === 1610 || rentalCredit === 6900) ? 230 : 250,
     };
     if (hubId) {
       riderUpdate.hub_id = hubId;
@@ -194,7 +192,7 @@ export async function POST(request: Request) {
     }
 
     console.log(
-      `[offline-onboard] Rider ${riderId} activated. Cash: ₹${cash}, Outstanding: ₹${outstandingBalance}, Valid until: ${validUntilISO}`
+      `[offline-onboard] Rider ${riderId} activated. Cash: ₹${cash}, Outstanding: ₹${outstandingBalance}, Wallet Balance: ₹${rentalCredit - outstandingBalance}`
     );
 
     return NextResponse.json({
@@ -205,7 +203,7 @@ export async function POST(request: Request) {
       onboarding_fees: PRICING.ONBOARDING_FEES,
       rental_credit: rentalCredit,
       outstanding_balance: outstandingBalance,
-      valid_until: validUntilISO,
+      wallet_balance: rentalCredit - outstandingBalance,
       grant_days: days,
     });
   } catch (error: unknown) {

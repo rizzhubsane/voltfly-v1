@@ -114,7 +114,7 @@ export async function POST(request: Request) {
     }
 
     const body = await request.json();
-    const { riderId, type, description, status } = body;
+    const { riderId, type, description, status, parts_selected, total_parts_cost, payment_status } = body;
 
     if (!riderId) {
       return NextResponse.json({ error: "Rider is required" }, { status: 400 });
@@ -140,16 +140,33 @@ export async function POST(request: Request) {
       .from("service_requests")
       .insert({
         rider_id: riderId,
-        type: type?.trim() || null,
-        description: description.trim(),
         issue_description: description.trim(),
         status: status || "open",
+        parts_selected: parts_selected || null,
+        total_parts_cost: total_parts_cost || 0,
+        payment_status: payment_status || "n/a",
         created_at: nowISO,
       })
       .select()
       .single();
 
     if (insertError) throw insertError;
+
+    if (payment_status === "paid" && total_parts_cost > 0) {
+      const { error: paymentError } = await supabaseAdmin.from("payments").insert({
+        rider_id: riderId,
+        amount: total_parts_cost,
+        plan_type: "service",
+        method: "cash", 
+        status: "paid",
+        paid_at: nowISO,
+        due_date: nowISO.split("T")[0],
+        notes: `Admin recorded Spares: ${(parts_selected || []).map((p: any) => p.name).join(", ")}`,
+      });
+      if (paymentError) {
+        console.warn("[add-service-request] payment track error:", paymentError);
+      }
+    }
 
     return NextResponse.json({ success: true, request: serviceRequest });
   } catch (err: unknown) {

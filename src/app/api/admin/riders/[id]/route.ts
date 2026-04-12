@@ -69,25 +69,24 @@ export async function PATCH(
         sanitized.created_at = d.toISOString();
       }
 
-      // ── Guard: prevent direct status → 'active' bypass without valid_until ──
+      // ── Guard: prevent direct status → 'active' bypass without wallet_balance ──
       // Setting a rider to 'active' without going through offline onboard means
-      // they have no valid_until → they never appear as overdue → free rides.
+      // they have no wallet_balance → they never appear as overdue → free rides.
       // The correct path is: kyc_approved → use Offline Onboard flow → active.
       if (sanitized.status === "active") {
         const { data: currentRider } = await supabaseAdmin
           .from("riders")
-          .select("valid_until")
+          .select("wallet_balance")
           .eq("id", riderId)
           .single();
 
-        const hasValidUntil = !!currentRider?.valid_until;
-        const settingValidUntilNow = false; // valid_until cannot be set via this route
+        const hasWalletBalance = currentRider?.wallet_balance != null;
 
-        if (!hasValidUntil && !settingValidUntilNow) {
+        if (!hasWalletBalance) {
           return NextResponse.json(
             {
               error:
-                "Cannot set status to 'active' without a valid subscription. Use the Offline Onboard flow instead to activate this rider.",
+                "Cannot set status to 'active' without a valid wallet balance. Use the Offline Onboard flow instead to activate this rider.",
             },
             { status: 400 }
           );

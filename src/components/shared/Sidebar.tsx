@@ -32,14 +32,14 @@ interface NavItem {
 const navItems: NavItem[] = [
   { name: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
   { name: "Riders", href: "/dashboard/riders", icon: Users },
+  { name: "Payments", href: "/dashboard/payments", icon: CreditCard },
+  { name: "Vehicles", href: "/dashboard/vehicles", icon: Truck },
   {
     name: "KYC Approvals",
     href: "/dashboard/kyc",
     icon: BadgeCheck,
     badge: 0, // will be replaced by pending count
   },
-  { name: "Vehicles", href: "/dashboard/vehicles", icon: Truck },
-  { name: "Payments", href: "/dashboard/payments", icon: CreditCard },
   { name: "Service Requests", href: "/dashboard/service", icon: Wrench },
   {
     name: "Notifications",
@@ -156,7 +156,7 @@ export function Sidebar() {
   return (
     <>
       {/* Desktop sidebar */}
-      <aside className="hidden w-[260px] flex-shrink-0 flex-col bg-[#0D2D6B] md:flex">
+      <aside className="hidden w-[208px] flex-shrink-0 flex-col bg-[#0D2D6B] md:flex">
         {navContent}
       </aside>
 
@@ -176,7 +176,7 @@ export function Sidebar() {
             className="absolute inset-0 bg-black/50 backdrop-blur-sm"
             onClick={() => setMobileOpen(false)}
           />
-          <aside className="absolute left-0 top-0 flex h-full w-[280px] flex-col bg-[#0D2D6B] shadow-2xl animate-in slide-in-from-left duration-300">
+          <aside className="absolute left-0 top-0 flex h-full w-[224px] flex-col bg-[#0D2D6B] shadow-2xl animate-in slide-in-from-left duration-300">
             <button
               onClick={() => setMobileOpen(false)}
               className="absolute right-3 top-5 flex h-8 w-8 items-center justify-center rounded-md text-white/60 hover:text-white"
