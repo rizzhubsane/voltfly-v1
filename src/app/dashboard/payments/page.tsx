@@ -103,7 +103,7 @@ const METHOD_CONFIG: Record<string, { label: string; class: string }> = {
 };
 
 const PLAN_LABEL: Record<string, { label: string; amount?: number; cycleDays?: number }> = {
-  daily:          { label: "Daily",          amount: 250,  cycleDays: 1  },
+  daily:          { label: "Daily",          amount: 230,  cycleDays: 1  },
   weekly:         { label: "Weekly",         amount: 1610, cycleDays: 7  },
   monthly:        { label: "Monthly",        amount: 6900, cycleDays: 30 },
   onboarding_fee: { label: "Onboarding Fee", amount: 190                  },

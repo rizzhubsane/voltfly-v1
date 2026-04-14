@@ -175,7 +175,7 @@ export async function POST(request: Request) {
     const riderUpdate: Record<string, unknown> = {
       status: "active",
       wallet_balance: rentalCredit - outstandingBalance,
-      daily_deduction_rate: (rentalCredit === 1610 || rentalCredit === 6900) ? 230 : 250,
+      daily_deduction_rate: 230,
     };
     if (hubId) {
       riderUpdate.hub_id = hubId;

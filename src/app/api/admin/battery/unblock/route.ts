@@ -51,22 +51,7 @@ export async function POST(request: Request) {
       console.warn("Could not update rider status:", riderUpdateError.message);
     }
 
-    // 4. Log the event
-    const { error: logError } = await supabaseAdmin
-      .from("battery_events_log")
-      .insert({
-        driver_id: driverId,
-        rider_id: riderId,
-        action: "unblocked",
-        trigger_type: "manual",
-        triggered_by: adminId,
-        reason: "Manually unblocked by admin",
-        created_at: new Date().toISOString()
-      });
-
-    if (logError) {
-       console.warn("Could not write to battery_events_log", logError);
-    }
+    // battery_events_log is written by the battery-unblock Edge Function.
 
     return NextResponse.json({ success: true, message: "Battery unblocked successfully" });
   } catch (error: unknown) {

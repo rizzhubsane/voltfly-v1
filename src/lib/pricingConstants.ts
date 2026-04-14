@@ -23,7 +23,7 @@ export const PRICING = {
   MINIMUM_ONBOARD_CASH: 2190, // SECURITY_DEPOSIT + ONBOARDING_FEES
 
   /** Per-day rental rate (used for custom plan and overdue calculations) */
-  DAILY_RATE: 250,
+  DAILY_RATE: 230,
 
   /** 1-week rental */
   WEEKLY_RATE: 1610,

@@ -226,7 +226,7 @@ export default function KycPage() {
       { label: "Aadhaar Front", url: kyc.aadhaar_front_url },
       { label: "Aadhaar Back", url: kyc.aadhaar_back_url },
       { label: "PAN Card", url: kyc.pan_url },
-      { label: "PCC", url: kyc.pcc_url },
+      { label: "Relative's ID Card", url: kyc.pcc_url },
     ];
   }
 

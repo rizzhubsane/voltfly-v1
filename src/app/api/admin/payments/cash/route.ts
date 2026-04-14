@@ -59,7 +59,7 @@ export async function POST(request: Request) {
 
       const currentWallet = rider?.wallet_balance ?? 0;
       newWalletBalance = currentWallet + amount;
-      const newRate = (amount === 1610 || amount === 6900) ? 230 : 250;
+      const newRate = (amount === 1610 || amount === 6900) ? 230 : 230;
 
       const riderUpdatePayload = {
         wallet_balance: newWalletBalance,

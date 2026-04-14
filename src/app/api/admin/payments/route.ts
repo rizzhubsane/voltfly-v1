@@ -86,7 +86,7 @@ export async function GET(request: Request) {
       if (ridersErr) return NextResponse.json({ error: ridersErr.message }, { status: 500 });
 
       const riderList = (riders ?? []).map((r) => {
-        const DAILY_RATE = r.daily_deduction_rate ?? 250;
+        const DAILY_RATE = r.daily_deduction_rate ?? 230;
         const wBalance = r.wallet_balance ?? 0;
         const isOverdue = wBalance <= 0;
         const estimatedOverdueAmount = isOverdue ? Math.abs(wBalance) : 0;

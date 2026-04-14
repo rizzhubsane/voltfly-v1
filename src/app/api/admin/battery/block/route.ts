@@ -51,22 +51,7 @@ export async function POST(request: Request) {
       console.warn("Could not update rider status:", riderUpdateError.message);
     }
 
-    // 4. Log the event
-    const { error: logError } = await supabaseAdmin
-      .from("battery_events_log")
-      .insert({
-        driver_id: driverId,
-        rider_id: riderId,
-        action: "blocked",
-        trigger_type: "manual",
-        triggered_by: adminId,
-        reason: reason,
-        created_at: new Date().toISOString()
-      });
-
-    if (logError) {
-       console.warn("Could not write to battery_events_log", logError);
-    }
+    // battery_events_log is written by the battery-block Edge Function.
 
     return NextResponse.json({ success: true, message: "Swap access blocked successfully" });
   } catch (error: unknown) {

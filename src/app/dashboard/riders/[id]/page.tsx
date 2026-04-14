@@ -338,8 +338,7 @@ export default function RiderDetailPage() {
   const [isEditing, setIsEditing] = useState(false);
   const [editRider, setEditRider] = useState<{
     name: string; phone_1: string; phone_2: string;
-    hub_id: string; driver_id: string; status: string;
-    created_at: string;
+    hub_id: string; driver_id: string; status: string; created_at: string; gig_company: string;
   } | null>(null);
   const [editKyc, setEditKyc] = useState<EditKycForm | null>(null);
   const editKycBaselineRef = useRef<EditKycForm | null>(null);
@@ -788,7 +787,7 @@ export default function RiderDetailPage() {
       { label: "Aadhaar Front", url: s?.aadhaar_front ?? null },
       { label: "Aadhaar Back", url: s?.aadhaar_back ?? null },
       { label: "PAN Card", url: s?.pan ?? null },
-      { label: "PCC", url: s?.pcc ?? null },
+      { label: "Relative's ID Card", url: s?.pcc ?? null },
     ];
   }
 
@@ -897,6 +896,7 @@ export default function RiderDetailPage() {
                       phone_2: rider.phone_2 ?? "",
                       hub_id: rider.hub_id ?? "",
                       driver_id: (rider as Record<string, unknown>).driver_id as string ?? "",
+                      gig_company: (rider as Record<string, unknown>).gig_company as string ?? "",
                       status: rider.status ?? "",
                       // Use "yyyy-MM-dd" for the HTML date input
                       created_at: rider.created_at ? format(new Date(rider.created_at), "yyyy-MM-dd") : format(new Date(), "yyyy-MM-dd"),
@@ -949,6 +949,7 @@ export default function RiderDetailPage() {
                   <InfoRow label="Phone 2" value={rider.phone_2} />
                   <InfoRow label="Hub" value={rider.hubs?.name} />
                   <InfoRow label="Status" value={rider.status} />
+                  <InfoRow label="Gig Company" value={(rider as any).gig_company || "Unspecified"} />
                   <InfoRow label="Joined" value={rider.created_at ? format(new Date(rider.created_at), "dd MMM yyyy") : null} />
                 </div>
               ) : (
@@ -989,6 +990,18 @@ export default function RiderDetailPage() {
                   <div className="space-y-1.5">
                     <Label className="text-xs text-muted-foreground">UpGrid Driver ID</Label>
                     <Input placeholder="e.g. D263669" value={editRider.driver_id} onChange={(e) => setEditRider({ ...editRider, driver_id: e.target.value })} className="font-mono" />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-xs text-muted-foreground">Gig Company</Label>
+                    <Select value={editRider.gig_company || "none"} onValueChange={(v) => setEditRider({ ...editRider, gig_company: v === "none" ? "" : v })}>
+                      <SelectTrigger><SelectValue placeholder="Select company..." /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="none" className="italic text-muted-foreground">Unspecified</SelectItem>
+                        {['Zomato', 'Swiggy', 'Zepto', 'Blinkit', 'Rapido', 'Uber', 'Ola', 'Other'].map(c => (
+                          <SelectItem key={c} value={c}>{c}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </div>
                   <div className="space-y-1.5">
                     <Label className="text-xs text-muted-foreground">Onboarding Date</Label>

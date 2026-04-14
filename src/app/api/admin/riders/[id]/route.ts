@@ -6,7 +6,7 @@ import { getErrorMessage, logPostgrestError } from "@/lib/errorMessage";
 export const dynamic = "force-dynamic";
 
 const RIDER_ALLOWED_FIELDS = [
-  "name", "phone_1", "phone_2", "hub_id", "driver_id", "status", "created_at",
+  "name", "phone_1", "phone_2", "hub_id", "driver_id", "status", "created_at", "gig_company"
 ] as const;
 
 const KYC_ALLOWED_FIELDS = [

@@ -77,23 +77,7 @@ export async function POST(
       );
     }
 
-    // 3. Log the event — DB constraint expects past-tense: "blocked" / "unblocked"
-    const loggedAction = action === "block" ? "blocked" : "unblocked";
-    const { error: logError } = await supabaseAdmin
-      .from("battery_events_log")
-      .insert({
-        driver_id: driverId,
-        rider_id: riderId,
-        action: loggedAction,
-        trigger_type: "manual",
-        triggered_by: adminId,
-        reason: reason || `Manually ${loggedAction} by admin`,
-        created_at: new Date().toISOString()
-      });
-
-    if (logError) {
-      console.warn("Could not write to battery_events_log", logError);
-    }
+    // battery_events_log is written by the battery-block / battery-unblock Edge Functions (no duplicate row here).
 
     return NextResponse.json({ success: true, newStatus });
   } catch (err: unknown) {
