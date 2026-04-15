@@ -2,7 +2,7 @@
 import { adminFetch } from "@/lib/adminFetch";
 
 
-import { useState, useMemo, useEffect, useRef } from "react";
+import { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
@@ -122,6 +122,25 @@ const KYC_SELECT_STATUSES = new Set(["pending", "submitted", "approved", "reject
 function normalizeKycStatusForSelect(s: string | undefined | null): string {
   if (s && KYC_SELECT_STATUSES.has(s)) return s;
   return "pending";
+}
+
+/** Sort VFEL#### numerically (VFEL1001 … VFEL1xxx); other IDs alphabetically. */
+function sortVehiclesByVfelId<T extends { vehicle_id?: string | null; chassis_number: string }>(
+  vehicles: T[]
+): T[] {
+  const rank = (v: T): [number, number, string] => {
+    const raw = (v.vehicle_id || "").trim().toUpperCase();
+    const m = raw.match(/^VFEL(\d+)$/i);
+    if (m) return [0, parseInt(m[1], 10), raw];
+    return [1, 0, raw || v.chassis_number];
+  };
+  return [...vehicles].sort((a, b) => {
+    const [ta, na, sa] = rank(a);
+    const [tb, nb, sb] = rank(b);
+    if (ta !== tb) return ta - tb;
+    if (ta === 0 && na !== nb) return na - nb;
+    return sa.localeCompare(sb);
+  });
 }
 
 function kycEditUnchanged(a: EditKycForm, b: EditKycForm): boolean {
@@ -346,6 +365,8 @@ export default function RiderDetailPage() {
   const [upgridInput, setUpgridInput] = useState("");
   const [assignVehicleOpen, setAssignVehicleOpen] = useState(false);
   const [selectedVehicleId, setSelectedVehicleId] = useState("");
+  /** Free-typed Vehicle ID (e.g. VFEL1001); resolved to selectedVehicleId when it matches a row */
+  const [assignVehicleIdInput, setAssignVehicleIdInput] = useState("");
   const [assignStep, setAssignStep] = useState<1 | 2>(1);
   const [assignChecklist, setAssignChecklist] = useState<HandoverFormState>(DEFAULT_HANDOVER_FORM);
   const [returnChecklist, setReturnChecklist] = useState<HandoverFormState>(DEFAULT_HANDOVER_FORM);
@@ -395,6 +416,27 @@ export default function RiderDetailPage() {
     },
     enabled: assignVehicleOpen && assignStep === 1 && !!data?.rider?.hub_id,
   });
+
+  const sortedAvailableVehicles = useMemo(
+    () => (availableVehicles?.length ? sortVehiclesByVfelId(availableVehicles) : []),
+    [availableVehicles]
+  );
+
+  /** Returns vehicles.id when the typed Vehicle ID matches an available row; updates selection state. */
+  const resolveAssignVehicleIdInput = useCallback((): string | null => {
+    const q = assignVehicleIdInput.trim().toUpperCase();
+    if (!q || !availableVehicles?.length) return null;
+    const found = availableVehicles.find(
+      (v: { id: string; vehicle_id?: string | null }) =>
+        (v.vehicle_id || "").trim().toUpperCase() === q
+    );
+    if (found) {
+      setSelectedVehicleId(found.id);
+      setAssignVehicleIdInput((found.vehicle_id || "").trim());
+      return found.id;
+    }
+    return null;
+  }, [assignVehicleIdInput, availableVehicles]);
 
   const { data: assignmentChecklist } = useQuery({
     queryKey: ["handover-checklist", data?.vehicle?.id],
@@ -602,6 +644,7 @@ export default function RiderDetailPage() {
       queryClient.invalidateQueries({ queryKey: ["vehicles"] });
       setAssignVehicleOpen(false);
       setSelectedVehicleId("");
+      setAssignVehicleIdInput("");
       setAssignStep(1);
       setAssignChecklist(DEFAULT_HANDOVER_FORM);
     },
@@ -1262,6 +1305,8 @@ export default function RiderDetailPage() {
                   <Button variant="outline" className="gap-2 mt-2" onClick={() => {
                     setAssignStep(1);
                     setAssignChecklist(DEFAULT_HANDOVER_FORM);
+                    setSelectedVehicleId("");
+                    setAssignVehicleIdInput("");
                     setAssignVehicleOpen(true);
                   }}>
                     <Plus className="h-4 w-4" /> Assign Vehicle
@@ -1718,7 +1763,22 @@ export default function RiderDetailPage() {
       </Dialog>
 
       {/* ═══ ASSIGN VEHICLE DIALOG ═══ */}
-      <Dialog open={assignVehicleOpen} onOpenChange={setAssignVehicleOpen}>
+      <Dialog
+        open={assignVehicleOpen}
+        onOpenChange={(open) => {
+          setAssignVehicleOpen(open);
+          if (open) {
+            setAssignStep(1);
+            setSelectedVehicleId("");
+            setAssignVehicleIdInput("");
+            setAssignChecklist(DEFAULT_HANDOVER_FORM);
+          } else {
+            setAssignStep(1);
+            setSelectedVehicleId("");
+            setAssignVehicleIdInput("");
+          }
+        }}
+      >
         <DialogContent className={`transition-all ${assignStep === 2 ? 'sm:max-w-2xl' : 'sm:max-w-md'} max-h-[90vh] overflow-y-auto`}>
           <DialogHeader>
             <DialogTitle>{assignStep === 1 ? "Assign Vehicle (Step 1 of 2)" : "Handover Condition Checklist (Step 2 of 2)"}</DialogTitle>
@@ -1740,20 +1800,44 @@ export default function RiderDetailPage() {
                   No vehicles are currently available in this hub.
                 </div>
               ) : (
-                <div className="space-y-2">
-                  <label className="text-sm font-medium">Available Vehicles</label>
-                  <select
-                    value={selectedVehicleId}
-                    onChange={(e) => setSelectedVehicleId(e.target.value)}
-                    className="flex h-10 w-full rounded-md border border-input bg-background px-3 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring"
-                  >
-                    <option value="" disabled>Select a vehicle...</option>
-                    {availableVehicles?.map((v: { id: string; vehicle_id?: string; chassis_number: string }) => (
-                      <option key={v.id} value={v.id}>
-                        {v.vehicle_id || v.chassis_number.slice(-6)} - Chassis: {v.chassis_number}
-                      </option>
-                    ))}
-                  </select>
+                <div className="space-y-4">
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">Vehicle ID (type or pick from list)</label>
+                    <Input
+                      placeholder="e.g. VFEL1001"
+                      value={assignVehicleIdInput}
+                      onChange={(e) => setAssignVehicleIdInput(e.target.value)}
+                      onBlur={() => {
+                        resolveAssignVehicleIdInput();
+                      }}
+                      className="font-mono"
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Must match an available vehicle in this hub. Blur or use Next to apply.
+                    </p>
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">Available vehicles (VFEL order)</label>
+                    <select
+                      value={selectedVehicleId}
+                      onChange={(e) => {
+                        const id = e.target.value;
+                        setSelectedVehicleId(id);
+                        const v = sortedAvailableVehicles.find((x: { id: string }) => x.id === id);
+                        setAssignVehicleIdInput(
+                          v ? ((v as { vehicle_id?: string | null; chassis_number: string }).vehicle_id || "").trim() : ""
+                        );
+                      }}
+                      className="flex h-10 w-full rounded-md border border-input bg-background px-3 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring"
+                    >
+                      <option value="" disabled>Select a vehicle...</option>
+                      {sortedAvailableVehicles.map((v: { id: string; vehicle_id?: string; chassis_number: string }) => (
+                        <option key={v.id} value={v.id}>
+                          {v.vehicle_id || v.chassis_number.slice(-6)} — Chassis: {v.chassis_number}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
                 </div>
               )}
             </div>
@@ -1772,8 +1856,23 @@ export default function RiderDetailPage() {
             {assignStep === 1 ? (
               <Button
                 className="gap-2"
-                disabled={!selectedVehicleId}
-                onClick={() => setAssignStep(2)}
+                disabled={!selectedVehicleId && !assignVehicleIdInput.trim()}
+                onClick={() => {
+                  let vid: string | null = selectedVehicleId || null;
+                  if (assignVehicleIdInput.trim()) {
+                    const resolved = resolveAssignVehicleIdInput();
+                    if (!resolved) {
+                      toast.error("No vehicle matches that Vehicle ID in this hub.");
+                      return;
+                    }
+                    vid = resolved;
+                  }
+                  if (!vid) {
+                    toast.error("Select a vehicle from the list or enter a valid Vehicle ID.");
+                    return;
+                  }
+                  setAssignStep(2);
+                }}
               >
                 Next Step <ArrowLeft className="h-4 w-4 rotate-180" />
               </Button>

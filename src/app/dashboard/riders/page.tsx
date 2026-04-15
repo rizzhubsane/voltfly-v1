@@ -572,9 +572,12 @@ export default function RidersPage() {
                       <div className="flex h-9 w-9 items-center justify-center rounded-full bg-primary/10 text-sm font-semibold text-primary flex-shrink-0">
                         {rider.name.charAt(0).toUpperCase()}
                       </div>
-                      <span className="font-medium text-[#0D2D6B]">
+                      <Link
+                        href={`/dashboard/riders/${rider.id}`}
+                        className="font-medium text-[#0D2D6B] hover:underline"
+                      >
                         {rider.name}
-                      </span>
+                      </Link>
                     </div>
                   </TableCell>
 
