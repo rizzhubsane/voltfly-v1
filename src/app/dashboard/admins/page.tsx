@@ -219,7 +219,7 @@ export default function AdminsPage() {
                     <TableCell>
                       <div className="flex items-center gap-3">
                         <div className="flex h-9 w-9 items-center justify-center rounded-full border border-primary/20 bg-primary/10 font-semibold text-primary">
-                          {user.name.charAt(0).toUpperCase()}
+                          {(user.name ?? '?').charAt(0).toUpperCase()}
                         </div>
                         <div className="flex flex-col">
                           <span className="font-medium text-secondary">{user.name}</span>

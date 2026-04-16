@@ -65,6 +65,13 @@ export async function POST(request: Request) {
   let batteryBlocked = false;
   let depositInitiated = false;
 
+  const { data: riderForExit } = await supabaseAdmin
+    .from("riders")
+    .select("driver_id")
+    .eq("id", riderId)
+    .maybeSingle();
+  const riderDriverIdSnapshot = riderForExit?.driver_id ?? null;
+
   try {
     // ── Step 1: Save return handover checklist (if vehicle & checklist provided) ─
     if (vehicleId && returnChecklist) {
@@ -108,44 +115,21 @@ export async function POST(request: Request) {
       }
     }
 
-    // ── Step 3: Mark rider as exited ─────────────────────────────────────────
-    const { error: riderErr } = await supabaseAdmin
-      .from("riders")
-      .update({ status: "exited" })
-      .eq("id", riderId);
-
-    if (riderErr) {
-      // This is critical — fail the whole request
-      throw new Error(`Failed to update rider status: ${riderErr.message}`);
-    }
-
-    // ── Step 4: Block the battery (best-effort via edge function) ─────────────
-    // Look up the battery to get the driver_id (Upgrid ID)
-    // Try current_rider_id first, then driver_id as fallback
-    // Look up battery by current_rider_id (primary). Fall back to the driver_id stored
-    // on the rider row in case the batteries table was populated via the Upgrid driver ID.
+    // ── Step 3: Block the battery (best-effort via edge function) ─────────────
+    // Run before clearing rider.driver_id. Try current_rider_id first, then snapshot Upgrid id.
     let { data: battery } = await supabaseAdmin
       .from("batteries")
       .select("driver_id, battery_id")
       .eq("current_rider_id", riderId)
       .maybeSingle();
 
-    if (!battery) {
-      // Secondary lookup: find via the Upgrid driver_id stored on the rider record itself.
-      const { data: riderRow } = await supabaseAdmin
-        .from("riders")
-        .select("driver_id")
-        .eq("id", riderId)
+    if (!battery && riderDriverIdSnapshot) {
+      const { data: batteryFallback } = await supabaseAdmin
+        .from("batteries")
+        .select("driver_id, battery_id")
+        .eq("driver_id", riderDriverIdSnapshot)
         .maybeSingle();
-
-      if (riderRow?.driver_id) {
-        const { data: batteryFallback } = await supabaseAdmin
-          .from("batteries")
-          .select("driver_id, battery_id")
-          .eq("driver_id", riderRow.driver_id)
-          .maybeSingle();
-        battery = batteryFallback;
-      }
+      battery = batteryFallback;
     }
 
     if (battery?.driver_id) {
@@ -182,6 +166,16 @@ export async function POST(request: Request) {
       }
     } else {
       warnings.push("No battery found for this rider — skipped battery block.");
+    }
+
+    // ── Step 4: Mark rider as exited and clear Upgrid driver id (fleet pairing) ─
+    const { error: riderErr } = await supabaseAdmin
+      .from("riders")
+      .update({ status: "exited", driver_id: null })
+      .eq("id", riderId);
+
+    if (riderErr) {
+      throw new Error(`Failed to update rider status: ${riderErr.message}`);
     }
 
     // ── Step 5: Initiate security deposit refund ──────────────────────────────

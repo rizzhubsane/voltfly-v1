@@ -570,13 +570,13 @@ export default function RidersPage() {
                   <TableCell>
                     <div className="flex items-center gap-3">
                       <div className="flex h-9 w-9 items-center justify-center rounded-full bg-primary/10 text-sm font-semibold text-primary flex-shrink-0">
-                        {rider.name.charAt(0).toUpperCase()}
+                        {(rider.name ?? '?').charAt(0).toUpperCase()}
                       </div>
                       <Link
                         href={`/dashboard/riders/${rider.id}`}
                         className="font-medium text-[#0D2D6B] hover:underline"
                       >
-                        {rider.name}
+                        {rider.name ?? <span className="text-muted-foreground italic">Unnamed</span>}
                       </Link>
                     </div>
                   </TableCell>

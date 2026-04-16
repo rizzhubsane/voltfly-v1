@@ -6,7 +6,9 @@ import { getErrorMessage, logPostgrestError } from "@/lib/errorMessage";
 export const dynamic = "force-dynamic";
 
 const RIDER_ALLOWED_FIELDS = [
-  "name", "phone_1", "phone_2", "hub_id", "driver_id", "status", "created_at", "gig_company"
+  "name", "phone_1", "phone_2", "hub_id", "driver_id", "status", "created_at", "gig_company",
+  // PIN auth management fields — cleared by admin to reset a rider's access code
+  "access_code_hash", "failed_attempts", "locked_until",
 ] as const;
 
 const KYC_ALLOWED_FIELDS = [

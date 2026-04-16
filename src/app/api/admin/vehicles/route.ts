@@ -10,6 +10,16 @@ type VehicleUpdate = Database["public"]["Tables"]["vehicles"]["Update"];
 type VehicleInsert = Database["public"]["Tables"]["vehicles"]["Insert"];
 type HandoverInsert = Database["public"]["Tables"]["vehicle_handover_checklists"]["Insert"];
 
+/** VFEL codes for pairing lookup */
+function normalizeVfel(v: string | null | undefined): string {
+  return (v ?? "").trim().toUpperCase();
+}
+
+/** Compare chassis from vehicles row vs fleet pairing spreadsheet */
+function normalizeChassis(c: string | null | undefined): string {
+  return (c ?? "").trim().toUpperCase().replace(/\s+/g, "");
+}
+
 export const dynamic = "force-dynamic";
 
 /**
@@ -152,6 +162,65 @@ export async function POST(request: Request) {
     }
 
     if (id) {
+      let pairingDriverId: string | null = null;
+      let riderToClearDriver: string | null = null;
+
+      if ("assigned_rider_id" in body) {
+        const { data: existingVeh, error: exErr } = await supabaseAdmin
+          .from("vehicles")
+          .select("vehicle_id, chassis_number, assigned_rider_id")
+          .eq("id", id)
+          .single();
+
+        if (exErr || !existingVeh) {
+          return NextResponse.json({ error: "Vehicle not found" }, { status: 404 });
+        }
+
+        const merged = { ...existingVeh, ...vehicleData };
+
+        if (body.assigned_rider_id === null) {
+          riderToClearDriver = existingVeh.assigned_rider_id;
+        } else if (body.assigned_rider_id) {
+          const vfel = normalizeVfel(merged.vehicle_id);
+          if (!vfel) {
+            return NextResponse.json(
+              {
+                error:
+                  "Vehicle must have a VFEL vehicle_id (e.g. VFEL1001) before assignment. Update the vehicle record or add it to vehicle_upgrid_pairing.",
+              },
+              { status: 400 }
+            );
+          }
+
+          const { data: pairing, error: pErr } = await supabaseAdmin
+            .from("vehicle_upgrid_pairing")
+            .select("driver_id, chassis_number")
+            .eq("vehicle_id", vfel)
+            .maybeSingle();
+
+          if (pErr) throw pErr;
+          if (!pairing) {
+            return NextResponse.json(
+              {
+                error: `No fleet pairing row for ${vfel}. Import the pairing spreadsheet into vehicle_upgrid_pairing or add the row in Supabase.`,
+              },
+              { status: 400 }
+            );
+          }
+
+          if (normalizeChassis(merged.chassis_number) !== normalizeChassis(pairing.chassis_number)) {
+            return NextResponse.json(
+              {
+                error: `Chassis mismatch for ${vfel}: vehicle has "${merged.chassis_number}" but fleet pairing expects "${pairing.chassis_number}". Fix the vehicle record or pairing data.`,
+              },
+              { status: 400 }
+            );
+          }
+
+          pairingDriverId = pairing.driver_id;
+        }
+      }
+
       // ── Update existing vehicle ─────────────────────────────────────────
       const { data, error } = await supabaseAdmin
         .from("vehicles")
@@ -192,7 +261,30 @@ export async function POST(request: Request) {
         if (clErr) throw clErr;
       }
 
-      return NextResponse.json({ success: true, vehicle: data });
+      if (pairingDriverId && vehicleData.assigned_rider_id) {
+        const { error: riderErr } = await supabaseAdmin
+          .from("riders")
+          .update({ driver_id: pairingDriverId })
+          .eq("id", vehicleData.assigned_rider_id as string);
+        if (riderErr) throw riderErr;
+      }
+
+      if (riderToClearDriver) {
+        const { error: clearErr } = await supabaseAdmin
+          .from("riders")
+          .update({ driver_id: null })
+          .eq("id", riderToClearDriver);
+        if (clearErr) throw clearErr;
+      }
+
+      return NextResponse.json({
+        success: true,
+        vehicle: data,
+        ...(pairingDriverId && vehicleData.assigned_rider_id
+          ? { rider_driver_id: pairingDriverId }
+          : {}),
+        ...(riderToClearDriver ? { cleared_driver_id: true, rider_driver_id: null } : {}),
+      });
 
     } else {
       // ── Insert new vehicle ──────────────────────────────────────────────
@@ -279,7 +371,13 @@ export async function PATCH(request: Request) {
 
     if (unassignError) throw unassignError;
 
-    return NextResponse.json({ success: true });
+    const { error: clearDriverErr } = await supabaseAdmin
+      .from("riders")
+      .update({ driver_id: null })
+      .eq("id", rider_id);
+    if (clearDriverErr) throw clearDriverErr;
+
+    return NextResponse.json({ success: true, cleared_driver_id: true, rider_driver_id: null });
   } catch (err: unknown) {
     return NextResponse.json({ error: getErrorMessage(err) }, { status: 500 });
   }

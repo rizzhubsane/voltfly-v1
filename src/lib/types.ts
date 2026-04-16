@@ -198,6 +198,30 @@ export interface Database {
           }
         ]
       }
+      vehicle_upgrid_pairing: {
+        Row: {
+          id: string
+          chassis_number: string
+          vehicle_id: string
+          driver_id: string
+          created_at: string | null
+        }
+        Insert: {
+          id?: string
+          chassis_number: string
+          vehicle_id: string
+          driver_id: string
+          created_at?: string | null
+        }
+        Update: {
+          id?: string
+          chassis_number?: string
+          vehicle_id?: string
+          driver_id?: string
+          created_at?: string | null
+        }
+        Relationships: []
+      }
       vehicles: {
         Row: {
           id: string

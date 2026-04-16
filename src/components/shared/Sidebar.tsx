@@ -7,7 +7,6 @@ import { useAdmin, type AdminRole } from "@/context/AdminContext";
 import {
   LayoutDashboard,
   Users,
-  BadgeCheck,
   Truck,
   CreditCard,
   Shield,
@@ -19,13 +18,11 @@ import {
   X,
 } from "lucide-react";
 import { useState, useEffect } from "react";
-import { supabase } from "@/lib/supabase";
 
 interface NavItem {
   name: string;
   href: string;
   icon: React.ElementType;
-  badge?: number;
   superAdminOnly?: boolean;
 }
 
@@ -34,12 +31,6 @@ const navItems: NavItem[] = [
   { name: "Riders", href: "/dashboard/riders", icon: Users },
   { name: "Payments", href: "/dashboard/payments", icon: CreditCard },
   { name: "Vehicles", href: "/dashboard/vehicles", icon: Truck },
-  {
-    name: "KYC Approvals",
-    href: "/dashboard/kyc",
-    icon: BadgeCheck,
-    badge: 0, // will be replaced by pending count
-  },
   { name: "Service Requests", href: "/dashboard/service", icon: Wrench },
   {
     name: "Notifications",
@@ -71,7 +62,6 @@ export function Sidebar() {
   const pathname = usePathname();
   const { role } = useAdmin();
   const [mobileOpen, setMobileOpen] = useState(false);
-  const [kycPending, setKycPending] = useState(0);
 
   const visible = getVisibleItems(role);
 
@@ -79,28 +69,6 @@ export function Sidebar() {
   useEffect(() => {
     setMobileOpen(false);
   }, [pathname]);
-
-  // Fetch pending KYC count from Supabase + subscribe to live changes
-  useEffect(() => {
-    const fetchPending = async () => {
-      const { count } = await supabase
-        .from("kyc")
-        .select("id", { count: "exact", head: true })
-        .eq("kyc_status", "pending");
-      setKycPending(count ?? 0);
-    };
-
-    fetchPending();
-
-    const channel = supabase
-      .channel("sidebar-kyc")
-      .on("postgres_changes", { event: "*", schema: "public", table: "kyc" }, () => {
-        fetchPending();
-      })
-      .subscribe();
-
-    return () => { supabase.removeChannel(channel); };
-  }, []);
 
   const linkClasses = (href: string) => {
     const isActive =
@@ -126,8 +94,6 @@ export function Sidebar() {
       <nav className="flex-1 space-y-1 overflow-y-auto px-3">
         {visible.map((item) => {
           const Icon = item.icon;
-          const showBadge = item.name === "KYC Approvals" && kycPending > 0;
-
           return (
             <Link
               key={item.href}
@@ -136,11 +102,6 @@ export function Sidebar() {
             >
               <Icon className="h-[18px] w-[18px] flex-shrink-0" />
               <span className="flex-1">{item.name}</span>
-              {showBadge && (
-                <span className="flex h-5 min-w-[20px] items-center justify-center rounded-full bg-red-500 px-1.5 text-[11px] font-bold leading-none text-white">
-                  {kycPending}
-                </span>
-              )}
             </Link>
           );
         })}

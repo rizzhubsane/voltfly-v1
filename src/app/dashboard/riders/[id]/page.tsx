@@ -352,6 +352,7 @@ export default function RiderDetailPage() {
   const [exitOpen, setExitOpen] = useState(false);
   const [hardDeleteOpen, setHardDeleteOpen] = useState(false);
   const [hardDeleteConfirmName, setHardDeleteConfirmName] = useState("");
+  const [resetPinOpen, setResetPinOpen] = useState(false);
 
   // ── Edit Profile ──────────────────────────────────────────────────────────
   const [isEditing, setIsEditing] = useState(false);
@@ -630,14 +631,27 @@ export default function RiderDetailPage() {
       if (!res.ok || data.error) throw new Error(data.error || "Failed to assign vehicle");
       return data;
     },
-    onSuccess: (data) => {
-      toast.success("Vehicle assigned successfully");
+    onSuccess: (data: {
+      vehicle?: unknown;
+      rider_driver_id?: string | null;
+    }) => {
+      const did = data?.rider_driver_id;
+      toast.success(
+        typeof did === "string" && did.length > 0
+          ? `Vehicle assigned. Upgrid Driver ID set to ${did}.`
+          : "Vehicle assigned successfully"
+      );
 
       // Immediately reflect the assigned vehicle in the UI using the API response
       if (data?.vehicle) {
-        queryClient.setQueryData(["rider-full", riderId], (old: RiderFullData | undefined) =>
-          old ? { ...old, vehicle: data.vehicle } : old
-        );
+        queryClient.setQueryData(["rider-full", riderId], (old: RiderFullData | undefined) => {
+          if (!old) return old;
+          const nextRider =
+            typeof did === "string" && did.length > 0
+              ? { ...old.rider, driver_id: did }
+              : old.rider;
+          return { ...old, vehicle: data.vehicle as RiderFullData["vehicle"], rider: nextRider };
+        });
       }
       // Background sync for full vehicle details (hub name, rider name joins, etc.)
       queryClient.invalidateQueries({ queryKey: ["rider-full", riderId] });
@@ -653,7 +667,7 @@ export default function RiderDetailPage() {
 
   const unassignVehicleMutation = useMutation({
     mutationFn: async () => {
-      if (!vehicle?.id) return;
+      if (!vehicle?.id) return null;
       const res = await adminFetch("/api/admin/vehicles", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -665,13 +679,18 @@ export default function RiderDetailPage() {
       });
       const data = await res.json();
       if (!res.ok || data.error) throw new Error(data.error || "Failed to unassign vehicle");
+      return data as { cleared_driver_id?: boolean };
     },
-    onSuccess: () => {
-      toast.success("Vehicle unassigned successfully");
+    onSuccess: (data) => {
+      toast.success(
+        data?.cleared_driver_id
+          ? "Vehicle unassigned. Upgrid Driver ID cleared."
+          : "Vehicle unassigned successfully"
+      );
 
       // Instantly clear the vehicle from the UI
       queryClient.setQueryData(["rider-full", riderId], (old: RiderFullData | undefined) =>
-        old ? { ...old, vehicle: null } : old
+        old ? { ...old, vehicle: null, rider: { ...old.rider, driver_id: null } } : old
       );
       // Background sync
       queryClient.invalidateQueries({ queryKey: ["rider-full", riderId] });
@@ -711,7 +730,9 @@ export default function RiderDetailPage() {
       }
       // Immediately update rider status to exited so the header badge changes
       queryClient.setQueryData(["rider-full", riderId], (old: RiderFullData | undefined) =>
-        old ? { ...old, rider: { ...old.rider, status: "exited" }, vehicle: null } : old
+        old
+          ? { ...old, rider: { ...old.rider, status: "exited", driver_id: null }, vehicle: null }
+          : old
       );
       queryClient.invalidateQueries({ queryKey: ["rider-full", riderId] });
       queryClient.invalidateQueries({ queryKey: ["riders"] });
@@ -773,6 +794,27 @@ export default function RiderDetailPage() {
       toast.success("Rider permanently deleted");
       queryClient.invalidateQueries({ queryKey: ["riders"] });
       router.push("/dashboard/riders");
+    },
+    onError: (err: Error) => toast.error(err.message),
+  });
+
+  const resetPinMutation = useMutation({
+    mutationFn: async () => {
+      const res = await adminFetch(`/api/admin/riders/${riderId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          rider: { access_code_hash: null, failed_attempts: 0, locked_until: null },
+        }),
+      });
+      const d = await res.json();
+      if (!res.ok) throw new Error(d.error || "Failed to reset access code");
+      return d;
+    },
+    onSuccess: () => {
+      toast.success("Access code reset. Rider must set a new code on next login.");
+      queryClient.invalidateQueries({ queryKey: ["rider-full", riderId] });
+      setResetPinOpen(false);
     },
     onError: (err: Error) => toast.error(err.message),
   });
@@ -848,10 +890,10 @@ export default function RiderDetailPage() {
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center gap-4">
             <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-primary/10 text-xl font-bold text-primary">
-              {rider.name.charAt(0).toUpperCase()}
+              {(rider.name ?? '?').charAt(0).toUpperCase()}
             </div>
             <div>
-              <h1 className="text-2xl font-bold tracking-tight text-[#0D2D6B]">{rider.name}</h1>
+              <h1 className="text-2xl font-bold tracking-tight text-[#0D2D6B]">{rider.name ?? 'Unnamed Rider'}</h1>
               <div className="flex items-center gap-3 mt-1 text-sm text-muted-foreground">
                 <span className="inline-flex items-center gap-1"><Phone className="h-3.5 w-3.5" />{rider.phone_1}</span>
                 {rider.phone_2 && <span className="inline-flex items-center gap-1"><Phone className="h-3.5 w-3.5" />{rider.phone_2}</span>}
@@ -883,6 +925,14 @@ export default function RiderDetailPage() {
                 <LogOut className="h-3.5 w-3.5" /> Process Exit
               </Button>
             )}
+            <Button
+              variant="outline"
+              className="gap-1.5 border-amber-300 text-amber-700 hover:bg-amber-50"
+              onClick={() => setResetPinOpen(true)}
+              title="Clear the rider's access code so they can set a new one on next login"
+            >
+              <ShieldCheck className="h-3.5 w-3.5" /> Reset Access Code
+            </Button>
             {isSuperAdmin && (
               <Button
                 variant="outline"
@@ -1889,6 +1939,48 @@ export default function RiderDetailPage() {
                  </Button>
               </div>
             )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Reset Access Code Confirmation Dialog ─────────────────────────── */}
+      <Dialog open={resetPinOpen} onOpenChange={setResetPinOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-amber-700">
+              <ShieldCheck className="h-5 w-5" />
+              Reset Access Code
+            </DialogTitle>
+            <DialogDescription className="pt-2 space-y-2">
+              <span className="block">
+                This will clear{" "}
+                <span className="font-semibold text-foreground">{rider?.name ?? "this rider"}</span>
+                &apos;s current access code and unlock the account if it was locked.
+              </span>
+              <span className="block text-amber-700 font-medium">
+                On their next login, they will be prompted to set a new 6-digit access code.
+              </span>
+              <span className="block text-sm text-muted-foreground">
+                Use this when a rider forgets their code or their account has been locked due to too many failed attempts.
+              </span>
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2 mt-2">
+            <Button variant="ghost" onClick={() => setResetPinOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              className="gap-2 bg-amber-600 hover:bg-amber-700 text-white"
+              disabled={resetPinMutation.isPending}
+              onClick={() => resetPinMutation.mutate()}
+            >
+              {resetPinMutation.isPending ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <ShieldCheck className="h-4 w-4" />
+              )}
+              Reset Access Code
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
