@@ -112,7 +112,7 @@ function StatCard({
   isAlert?: boolean;
   loading?: boolean;
 }) {
-  const alertClass = isAlert && value > 0 ? "text-red-600 dark:text-red-400" : "text-secondary";
+  const alertClass = isAlert && Number(value) > 0 ? "text-red-600 dark:text-red-400" : "text-secondary";
   
   if (loading) {
     return (
@@ -133,7 +133,7 @@ function StatCard({
             <p className="text-sm font-medium text-muted-foreground">{label}</p>
             <h3 className={`text-2xl font-bold tracking-tight ${alertClass}`}>{value}</h3>
           </div>
-          <div className={`p-3 rounded-xl ${isAlert && value > 0 ? 'bg-red-50 text-red-600' : 'bg-primary/10 text-primary'}`}>
+          <div className={`p-3 rounded-xl ${isAlert && Number(value) > 0 ? 'bg-red-50 text-red-600' : 'bg-primary/10 text-primary'}`}>
             <Icon className="h-6 w-6" />
           </div>
         </div>

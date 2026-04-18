@@ -203,10 +203,13 @@ function SkeletonRow() {
         <div className="h-4 w-24 rounded bg-slate-200 animate-pulse" />
       </TableCell>
       <TableCell>
-        <div className="h-4 w-20 rounded bg-slate-200 animate-pulse" />
+        <div className="h-4 w-8 rounded bg-slate-200 animate-pulse" />
       </TableCell>
       <TableCell>
         <div className="h-5 w-24 rounded-full bg-slate-200 animate-pulse" />
+      </TableCell>
+      <TableCell>
+        <div className="h-5 w-16 rounded bg-slate-200 animate-pulse" />
       </TableCell>
       <TableCell>
         <div className="h-5 w-16 rounded-full bg-slate-200 animate-pulse" />
@@ -393,6 +396,7 @@ export default function RidersPage() {
                 <TableHead>Phone</TableHead>
                 <TableHead>Hub</TableHead>
                 <TableHead>Status</TableHead>
+                <TableHead>Wallet</TableHead>
                 <TableHead>Vehicle ID</TableHead>
                 <TableHead>Driver ID</TableHead>
                 <TableHead>Swap</TableHead>
@@ -537,6 +541,7 @@ export default function RidersPage() {
               <TableHead>Phone</TableHead>
               <TableHead>Hub</TableHead>
               <TableHead>Status</TableHead>
+              <TableHead>Wallet</TableHead>
               <TableHead>Vehicle ID</TableHead>
               <TableHead>Driver ID</TableHead>
               <TableHead>Swap</TableHead>
@@ -548,7 +553,7 @@ export default function RidersPage() {
             {paginated.length === 0 ? (
               <TableRow>
                 <TableCell
-                  colSpan={9}
+                  colSpan={10}
                   className="h-40 text-center text-muted-foreground"
                 >
                   <div className="flex flex-col items-center gap-2">
@@ -586,27 +591,41 @@ export default function RidersPage() {
                     {rider.phone_1}
                   </TableCell>
 
-                  {/* Hub */}
+                  {/* Hub — abbreviated */}
                   <TableCell>
                     {rider.hubs?.name ? (
-                      <span className="text-sm font-medium">
-                        {rider.hubs.name}
+                      <span className="text-sm font-semibold text-slate-600">
+                        {rider.hubs.name.toLowerCase().includes("okhla")
+                          ? "OK"
+                          : rider.hubs.name.toLowerCase().includes("jhande")
+                          ? "JH"
+                          : rider.hubs.name}
                       </span>
                     ) : (
                       <span className="text-sm text-muted-foreground">—</span>
                     )}
                   </TableCell>
 
-                  {/* Status badge + outstanding */}
+                  {/* Status badge */}
                   <TableCell>
-                    <div className="flex items-center gap-2">
-                      <StatusBadge status={rider.status} />
-                      {(rider.outstanding_balance ?? 0) > 0 && (
-                        <span className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-bold bg-red-100 text-red-700">
-                          ₹{rider.outstanding_balance.toLocaleString()} due
+                    <StatusBadge status={rider.status} />
+                  </TableCell>
+
+                  {/* Wallet balance */}
+                  <TableCell>
+                    {(() => {
+                      const bal = rider.wallet_balance ?? null;
+                      if (bal === null) return <span className="text-muted-foreground text-xs">—</span>;
+                      const isNeg = bal < 0;
+                      const isZero = bal === 0;
+                      return (
+                        <span className={`text-sm font-bold tabular-nums ${
+                          isNeg ? "text-red-600" : isZero ? "text-orange-500" : "text-emerald-700"
+                        }`}>
+                          ₹{bal.toLocaleString()}
                         </span>
-                      )}
-                    </div>
+                      );
+                    })()}
                   </TableCell>
 
                   {/* Vehicle ID — inline from API */}

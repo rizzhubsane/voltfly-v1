@@ -5,15 +5,11 @@ import { verifyAdmin } from "@/lib/auth";
 /**
  * POST /api/admin/riders/balance
  *
- * Manually adjust a rider's outstanding_balance.
- * Use cases: add a fine, forgive partial debt, correct errors.
+ * Manually adjust a rider's wallet_balance (positive = add credit, negative = deduct/fine).
+ * Every adjustment is logged to wallet_transactions and balance_audit_log.
+ * If the wallet goes positive after adjustment, the rider is auto-unblocked.
  *
- * Body: { riderId, adjustment, reason }
- *   adjustment: positive = add debt (fine), negative = reduce debt (forgiveness)
- *
- * Every adjustment is written to balance_audit_log for a permanent audit trail.
- * A corresponding payments row is also inserted so the adjustment is visible
- * in the rider's payment history tab.
+ * Body: { riderId, adjustment: number, reason: string }
  */
 export async function POST(request: Request) {
   try {
@@ -21,10 +17,7 @@ export async function POST(request: Request) {
     if (auth.error) return auth.error;
 
     if (!supabaseAdmin) {
-      return NextResponse.json(
-        { error: "Server is missing Supabase service role configuration" },
-        { status: 500 }
-      );
+      return NextResponse.json({ error: "Server missing Supabase admin" }, { status: 500 });
     }
 
     const body = await request.json();
@@ -32,32 +25,21 @@ export async function POST(request: Request) {
     const adminId = auth.admin.id;
 
     if (!riderId || adjustment == null) {
-      return NextResponse.json(
-        { error: "Missing required fields: riderId, adjustment" },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: "Missing required fields: riderId, adjustment" }, { status: 400 });
     }
-
-    if (!reason || !reason.trim()) {
-      return NextResponse.json(
-        { error: "A reason is required for all balance adjustments" },
-        { status: 400 }
-      );
+    if (!reason?.trim()) {
+      return NextResponse.json({ error: "A reason is required for all wallet adjustments" }, { status: 400 });
     }
 
     const adj = Number(adjustment);
-
     if (isNaN(adj) || adj === 0) {
-      return NextResponse.json(
-        { error: "Adjustment must be a non-zero number" },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: "Adjustment must be a non-zero number" }, { status: 400 });
     }
 
-    // Fetch current balance
+    // Fetch current rider state
     const { data: rider, error: fetchErr } = await supabaseAdmin
       .from("riders")
-      .select("id, name, outstanding_balance")
+      .select("id, name, wallet_balance, status, driver_id, daily_deduction_rate")
       .eq("id", riderId)
       .single();
 
@@ -65,84 +47,87 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Rider not found" }, { status: 404 });
     }
 
-    const currentBalance = rider.outstanding_balance ?? 0;
-    const newBalance = Math.max(0, currentBalance + adj);
-    const nowISO = new Date().toISOString();
+    const oldBalance  = rider.wallet_balance ?? 0;
+    const newBalance  = oldBalance + adj;
+    const nowISO      = new Date().toISOString();
 
-    // 1. Update the rider's outstanding_balance
+    // 1. Update wallet_balance
     const { error: updateErr } = await supabaseAdmin
       .from("riders")
-      .update({ outstanding_balance: newBalance })
+      .update({ wallet_balance: newBalance })
       .eq("id", riderId);
 
-    if (updateErr) {
-      return NextResponse.json({ error: updateErr.message }, { status: 500 });
+    if (updateErr) throw updateErr;
+
+    // 2. Log to wallet_transactions
+    await supabaseAdmin.from("wallet_transactions").insert({
+      rider_id:       riderId,
+      amount:         adj,
+      type:           "admin_adjustment",
+      balance_before: oldBalance,
+      balance_after:  newBalance,
+      reference_id:   adminId,
+      notes:          reason.trim(),
+      created_at:     nowISO,
+    });
+
+    // 3. Log to balance_audit_log
+    await supabaseAdmin.from("balance_audit_log").insert({
+      rider_id:    riderId,
+      admin_id:    adminId,
+      old_balance: oldBalance,
+      adjustment:  adj,
+      new_balance: newBalance,
+      reason:      reason.trim(),
+      created_at:  nowISO,
+    });
+
+    // 4. Auto-unblock if wallet went positive and rider is suspended
+    let unblocked = false;
+    if (newBalance > 0 && rider.status === "suspended") {
+      // Set rider active
+      await supabaseAdmin.from("riders").update({ status: "active" }).eq("id", riderId);
+
+      // Unblock battery if assigned
+      if (rider.driver_id) {
+        const { data: battery } = await supabaseAdmin
+          .from("batteries")
+          .select("status, driver_id")
+          .eq("current_rider_id", riderId)
+          .maybeSingle();
+
+        if (battery?.status === "blocked" && battery.driver_id) {
+          try {
+            await supabaseAdmin.functions.invoke("battery-unblock", {
+              body: {
+                driverId:    battery.driver_id,
+                riderId:     riderId,
+                triggeredBy: adminId,
+                triggerType: "admin_adjustment",
+                reason:      `Wallet adjusted to ₹${newBalance} — auto-unblocked`,
+              },
+            });
+            await supabaseAdmin
+              .from("batteries")
+              .update({ status: "active", last_action_at: nowISO })
+              .eq("current_rider_id", riderId);
+            unblocked = true;
+          } catch (err) {
+            console.error("[balance] Battery unblock failed:", err);
+          }
+        }
+      }
     }
 
-    // 2. Write a permanent audit log row
-    // The balance_audit_log table must exist:
-    // CREATE TABLE IF NOT EXISTS balance_audit_log (
-    //   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-    //   rider_id uuid REFERENCES riders(id),
-    //   admin_id uuid REFERENCES admin_users(id),
-    //   old_balance numeric NOT NULL,
-    //   adjustment numeric NOT NULL,
-    //   new_balance numeric NOT NULL,
-    //   reason text,
-    //   created_at timestamptz DEFAULT now()
-    // );
-    const { error: auditErr } = await supabaseAdmin
-      .from("balance_audit_log")
-      .insert({
-        rider_id: riderId,
-        admin_id: adminId,
-        old_balance: currentBalance,
-        adjustment: adj,
-        new_balance: newBalance,
-        reason: reason.trim(),
-        created_at: nowISO,
-      });
-
-    if (auditErr) {
-      // Non-fatal: log to console — the balance was already updated.
-      // If the table doesn't exist yet, this will fail silently.
-      console.error("[balance] balance_audit_log insert error:", auditErr.message);
-    }
-
-    // 3. Insert a payments row so the adjustment is visible in payment history
-    const isFine = adj > 0;
-    const { error: paymentErr } = await supabaseAdmin
-      .from("payments")
-      .insert({
-        rider_id: riderId,
-        amount: Math.abs(adj),
-        plan_type: isFine ? "fine" : "balance_adjustment",
-        method: "cash",
-        status: isFine ? "pending" : "paid",
-        paid_at: isFine ? null : nowISO,
-        due_date: nowISO,
-        recorded_by: adminId,
-        notes: `Manual balance adjustment (${isFine ? "+" : ""}${adj}). Reason: ${reason.trim()}`,
-        created_at: nowISO,
-      });
-
-    if (paymentErr) {
-      console.error("[balance] payments insert error:", paymentErr.message);
-      // Non-fatal
-    }
-
-    const direction = adj >= 0 ? "+" : "";
-    console.log(
-      `[balance] Rider ${riderId} (${rider.name}): ₹${currentBalance} → ₹${newBalance} (${direction}${adj}). Reason: ${reason}. By: ${adminId}`
-    );
+    console.log(`[balance] Rider ${rider.name}: ₹${oldBalance} → ₹${newBalance} (${adj > 0 ? "+" : ""}${adj}). Reason: ${reason}. Unblocked: ${unblocked}`);
 
     return NextResponse.json({
-      success: true,
-      rider_id: riderId,
-      previous_balance: currentBalance,
-      adjustment: adj,
-      new_balance: newBalance,
-      reason: reason.trim(),
+      success:          true,
+      rider_id:         riderId,
+      previous_balance: oldBalance,
+      adjustment:       adj,
+      new_balance:      newBalance,
+      unblocked,
     });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "Unknown error";

@@ -19,88 +19,119 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
     }
 
+    // Determine if this payment is a rental extension (adds to wallet)
     let cycleDays = 0;
-    if (planType === "daily") cycleDays = 1;
-    else if (planType === "weekly") cycleDays = 7;
+    if (planType === "daily")        cycleDays = 1;
+    else if (planType === "weekly")  cycleDays = 7;
     else if (planType === "monthly") cycleDays = 30;
-    else if (planType === "custom") {
-      cycleDays = Number(body.cycleDays);
-    }
+    else if (planType === "custom")  cycleDays = Number(body.cycleDays) || 0;
+
     const isRentalExtension = cycleDays > 0;
     const paidDate = new Date(paidAt || new Date().toISOString());
+    const nowISO   = new Date().toISOString();
 
-    // Insert generic payment record
+    // 1. Insert payment record (immutable ledger of cash flows)
     const { data: payment, error: paymentError } = await supabaseAdmin
       .from("payments")
       .insert({
-        rider_id: riderId,
-        amount: amount,
-        plan_type: planType,
-        method: "cash",
-        status: "paid",
-        paid_at: paidDate.toISOString(),
+        rider_id:    riderId,
+        amount:      amount,
+        plan_type:   planType,
+        method:      "cash",
+        status:      "paid",
+        due_date:    paidDate.toISOString().slice(0, 10),  // NOT NULL — default to payment date
+        paid_at:     paidDate.toISOString(),
         recorded_by: adminId,
-        notes: notes || null,
-        created_at: new Date().toISOString(),
+        notes:       notes || null,
+        created_at:  nowISO,
       })
       .select()
       .single();
 
     if (paymentError) throw paymentError;
 
-    let newWalletBalance = null;
+    let newWalletBalance: number | null = null;
 
     if (isRentalExtension) {
+      // Fetch current wallet balance
       const { data: rider } = await supabaseAdmin
         .from("riders")
-        .select("wallet_balance")
+        .select("wallet_balance, status, driver_id, daily_deduction_rate")
         .eq("id", riderId)
         .single();
 
-      const currentWallet = rider?.wallet_balance ?? 0;
-      newWalletBalance = currentWallet + amount;
-      const newRate = (amount === 1610 || amount === 6900) ? 230 : 230;
+      const currentWallet   = rider?.wallet_balance ?? 0;
+      const walletAfter     = currentWallet + amount;  // always a number
+      newWalletBalance      = walletAfter;
+      const dailyRate       = rider?.daily_deduction_rate ?? 230;
 
-      const riderUpdatePayload = {
-        wallet_balance: newWalletBalance,
-        payment_status: "paid",
-        outstanding_balance: 0,
-        daily_deduction_rate: newRate,
-      };
 
+      // 2. Update wallet balance
       await supabaseAdmin
         .from("riders")
-        .update(riderUpdatePayload)
+        .update({
+          wallet_balance:      newWalletBalance,
+          payment_status:      "paid",
+          outstanding_balance: 0,          // legacy field — keep zeroed
+          daily_deduction_rate: 230,
+        })
         .eq("id", riderId);
 
-      // Auto-unblock battery if wallet balance is positive
-      if (newWalletBalance > 0) {
+      // 3. Log to wallet_transactions
+      await supabaseAdmin.from("wallet_transactions").insert({
+        rider_id:       riderId,
+        amount:         amount,
+        type:           "rental_credit",
+        balance_before: currentWallet,
+        balance_after:  walletAfter,
+        reference_id:   payment.id,
+        notes:          `Cash payment (${planType}) recorded by admin`,
+        created_at:     nowISO,
+      });
+
+      // 4. Auto-unblock battery if wallet goes positive
+      if (walletAfter > 0 && rider?.status === "suspended") {
         const { data: battery } = await supabaseAdmin
           .from("batteries")
           .select("status, driver_id")
           .eq("current_rider_id", riderId)
-          .single();
+          .maybeSingle();
 
-        if (battery && battery.status === "blocked" && battery.driver_id) {
+        if (battery?.status === "blocked" && battery.driver_id) {
           try {
             await supabaseAdmin.functions.invoke("battery-unblock", {
               body: {
-                driverId: battery.driver_id,
-                riderId: riderId,
+                driverId:    battery.driver_id,
+                riderId:     riderId,
                 triggeredBy: adminId,
                 triggerType: "cash_payment",
-                reason: "Cash payment received — auto-unblocked",
+                reason:      `Cash payment ₹${amount} received — wallet now ₹${walletAfter} — auto-unblocked`,
               },
             });
             await supabaseAdmin
               .from("batteries")
-              .update({ status: "active", last_action_at: new Date().toISOString() })
+              .update({ status: "active", last_action_at: nowISO })
               .eq("current_rider_id", riderId);
-            await supabaseAdmin.from("riders").update({ status: "active" }).eq("id", riderId);
-          } catch (err) {}
+            await supabaseAdmin
+              .from("riders")
+              .update({ status: "active" })
+              .eq("id", riderId);
+          } catch (err) {
+            console.error("[cash] Battery unblock failed:", err);
+          }
         }
       }
+
+      console.log(`[cash] Rider ${riderId}: wallet ₹${currentWallet} → ₹${walletAfter} (+₹${amount})`);
+
+      // If wallet still negative — log a warning (partial payment — not enough to unblock)
+      if (walletAfter <= 0) {
+        const daysOwed = Math.ceil(Math.abs(walletAfter) / dailyRate);
+        console.warn(`[cash] Rider ${riderId} wallet still negative (₹${walletAfter}). Still owes ≈${daysOwed} days.`);
+      }
     }
+    // Service / onboarding_fee / security_deposit → no wallet change — just logged in payments table
+
 
     return NextResponse.json({
       success: true,
@@ -108,7 +139,14 @@ export async function POST(request: Request) {
       new_wallet_balance: newWalletBalance,
     });
   } catch (error: unknown) {
-    const message = error instanceof Error ? error.message : "Unknown error";
+    // Handle both native Error and Supabase PostgrestError objects
+    let message = "Unknown error";
+    if (error instanceof Error) {
+      message = error.message;
+    } else if (error && typeof error === "object" && "message" in error) {
+      message = String((error as { message: unknown }).message);
+    }
+    console.error("[cash] Error:", message, error);
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }

@@ -83,6 +83,17 @@ import {
 
 type TabKey = "profile" | "vehicle" | "payments" | "service";
 
+// Wallet transaction type (from wallet_transactions table)
+type WalletTx = {
+  id: string;
+  amount: number;
+  type: "daily_deduction" | "rental_credit" | "admin_adjustment" | "onboarding" | "service_payment";
+  balance_before: number;
+  balance_after: number;
+  notes: string | null;
+  created_at: string;
+};
+
 const TABS: { key: TabKey; label: string; icon: React.ElementType }[] = [
   { key: "profile", label: "Profile & KYC", icon: UserCircle },
   { key: "vehicle", label: "Vehicle & Swap Access", icon: Truck },
@@ -90,7 +101,7 @@ const TABS: { key: TabKey; label: string; icon: React.ElementType }[] = [
   { key: "service", label: "Service Requests", icon: Wrench },
 ];
 
-type RiderStatus = "pending_kyc" | "kyc_submitted" | "kyc_approved" | "active" | "suspended" | "exited";
+type RiderStatus = "pending_kyc" | "kyc_submitted" | "kyc_approved" | "active" | "suspended" | "on_leave" | "exited";
 
 const STATUS_CONFIG: Record<RiderStatus, { label: string; bg: string; text: string; dot: string }> = {
   pending_kyc:   { label: "Pending KYC",   bg: "bg-slate-100",   text: "text-slate-700",   dot: "bg-slate-400" },
@@ -98,6 +109,7 @@ const STATUS_CONFIG: Record<RiderStatus, { label: string; bg: string; text: stri
   kyc_approved:  { label: "KYC Approved",  bg: "bg-blue-100",    text: "text-blue-800",     dot: "bg-blue-500" },
   active:        { label: "Active",        bg: "bg-emerald-100", text: "text-emerald-700",  dot: "bg-emerald-500" },
   suspended:     { label: "Suspended",     bg: "bg-orange-100",  text: "text-orange-800",   dot: "bg-orange-500" },
+  on_leave:      { label: "On Leave",      bg: "bg-purple-100",  text: "text-purple-800",   dot: "bg-purple-500" },
   exited:        { label: "Exited",        bg: "bg-red-100",     text: "text-red-700",      dot: "bg-red-500" },
 };
 
@@ -363,6 +375,17 @@ export default function RiderDetailPage() {
   const [editKyc, setEditKyc] = useState<EditKycForm | null>(null);
   const editKycBaselineRef = useRef<EditKycForm | null>(null);
   const [paymentDialogOpen, setPaymentDialogOpen] = useState(false);
+
+  // Leave system
+  const [leaveDialogOpen, setLeaveDialogOpen]   = useState(false);
+  const [leaveAction, setLeaveAction]           = useState<"start" | "end">("start");
+  const [leaveReason, setLeaveReason]           = useState("");
+  const [leaveExpected, setLeaveExpected]       = useState("");
+
+  // Wallet adjustment
+  const [walletAdjOpen, setWalletAdjOpen]       = useState(false);
+  const [walletAdjAmount, setWalletAdjAmount]   = useState("");
+  const [walletAdjReason, setWalletAdjReason]   = useState("");
   const [upgridInput, setUpgridInput] = useState("");
   const [assignVehicleOpen, setAssignVehicleOpen] = useState(false);
   const [selectedVehicleId, setSelectedVehicleId] = useState("");
@@ -819,6 +842,64 @@ export default function RiderDetailPage() {
     onError: (err: Error) => toast.error(err.message),
   });
 
+  // ── Wallet Transactions (ledger) ──────────────────────────────────────────
+  const { data: walletTxData } = useQuery<{ transactions: WalletTx[] }>({
+    queryKey: ["wallet-transactions", riderId],
+    queryFn: () => adminFetch(`/api/admin/riders/${riderId}/wallet-transactions`).then(r => r.json()),
+    enabled: !!riderId && activeTab === "payments",
+    staleTime: 0,
+  });
+  const walletTransactions = walletTxData?.transactions ?? [];
+
+  // ── Leave Mutation ─────────────────────────────────────────────────────────
+  const leaveMutation = useMutation({
+    mutationFn: async () => {
+      if (leaveAction === "start" && !leaveReason.trim()) throw new Error("Reason is required");
+      const res = await adminFetch(`/api/admin/riders/${riderId}/leave`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: leaveAction, reason: leaveReason.trim(), expectedReturn: leaveExpected || undefined }),
+      });
+      const d = await res.json();
+      if (!res.ok) throw new Error(d.error || "Leave action failed");
+      return d;
+    },
+    onSuccess: (d) => {
+      toast.success(leaveAction === "start" ? "Rider put on leave — billing paused" : `Rider returned from leave → ${d.status}`);
+      queryClient.invalidateQueries({ queryKey: ["rider-full", riderId] });
+      setLeaveDialogOpen(false);
+      setLeaveReason("");
+      setLeaveExpected("");
+    },
+    onError: (err: Error) => toast.error(err.message),
+  });
+
+  // ── Wallet Adjustment Mutation ─────────────────────────────────────────────
+  const walletAdjMutation = useMutation({
+    mutationFn: async () => {
+      const adj = parseFloat(walletAdjAmount);
+      if (isNaN(adj) || adj === 0) throw new Error("Enter a valid non-zero amount");
+      if (!walletAdjReason.trim()) throw new Error("Reason is required");
+      const res = await adminFetch("/api/admin/riders/balance", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ riderId, adjustment: adj, reason: walletAdjReason.trim() }),
+      });
+      const d = await res.json();
+      if (!res.ok) throw new Error(d.error || "Adjustment failed");
+      return d;
+    },
+    onSuccess: (d) => {
+      toast.success(`Wallet adjusted → ₹${d.new_balance}${d.unblocked ? " — Rider unblocked" : ""}`);
+      queryClient.invalidateQueries({ queryKey: ["rider-full", riderId] });
+      queryClient.invalidateQueries({ queryKey: ["wallet-transactions", riderId] });
+      setWalletAdjOpen(false);
+      setWalletAdjAmount("");
+      setWalletAdjReason("");
+    },
+    onError: (err: Error) => toast.error(err.message),
+  });
+
   // ── Derived ——————————————————————————————————————————————————————————————
   const rider = data?.rider;
   const kyc = data?.kyc;
@@ -918,6 +999,21 @@ export default function RiderDetailPage() {
                 setSwapActionOpen(true);
               }}>
                 <RefreshCw className="h-3.5 w-3.5" /> Unblock Swap
+              </Button>
+            )}
+            {/* Leave controls */}
+            {["active", "suspended"].includes(rider.status) && (
+              <Button variant="outline" className="gap-1.5 border-purple-300 text-purple-700 hover:bg-purple-50" onClick={() => {
+                setLeaveAction("start"); setLeaveReason(""); setLeaveExpected(""); setLeaveDialogOpen(true);
+              }}>
+                <Calendar className="h-3.5 w-3.5" /> Put on Leave
+              </Button>
+            )}
+            {rider.status === "on_leave" && (
+              <Button variant="outline" className="gap-1.5 border-emerald-300 text-emerald-700 hover:bg-emerald-50" onClick={() => {
+                setLeaveAction("end"); setLeaveDialogOpen(true);
+              }}>
+                <RefreshCw className="h-3.5 w-3.5" /> Return from Leave
               </Button>
             )}
             {rider.status !== "exited" && (
@@ -1074,7 +1170,7 @@ export default function RiderDetailPage() {
                     <Select value={editRider.status} onValueChange={(v) => setEditRider({ ...editRider, status: v })}>
                       <SelectTrigger><SelectValue /></SelectTrigger>
                       <SelectContent>
-                        {["pending_kyc","kyc_submitted","kyc_approved","active","suspended","exited"].map((s) => (
+                        {["pending_kyc","kyc_submitted","kyc_approved","active","suspended","on_leave","exited"].map((s) => (
                           <SelectItem key={s} value={s}>{s.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())}</SelectItem>
                         ))}
                       </SelectContent>
@@ -1410,79 +1506,168 @@ export default function RiderDetailPage() {
         )}
 
         {/* ═══ TAB 3: Payments ═══ */}
-        {activeTab === "payments" && (
-          <div className="space-y-6">
-            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-              <div className="flex items-center gap-4">
-                <div className="rounded-lg border bg-emerald-50 px-4 py-3">
-                  <p className="text-xs text-muted-foreground">This Month</p>
-                  <p className="text-xl font-bold text-emerald-700">₹{thisMonthTotal.toLocaleString()}</p>
+        {activeTab === "payments" && (() => {
+          const walletBal  = rider.wallet_balance ?? 0;
+          const rate       = (rider as any).daily_deduction_rate ?? 230;
+          const isNegative = walletBal < 0;
+          const daysOwed   = isNegative ? Math.ceil(Math.abs(walletBal) / rate) : 0;
+          const daysLeft   = !isNegative ? Math.floor(walletBal / rate) : 0;
+
+          return (
+            <div className="space-y-6">
+              {/* ── Wallet Summary Card ── */}
+              <div className={`rounded-xl border-2 p-5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 ${
+                isNegative ? "border-red-300 bg-red-50" : walletBal === 0 ? "border-orange-300 bg-orange-50" : "border-emerald-300 bg-emerald-50"
+              }`}>
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-1">Wallet Balance</p>
+                  <p className={`text-4xl font-black ${isNegative ? "text-red-600" : walletBal === 0 ? "text-orange-600" : "text-emerald-700"}`}>
+                    ₹{walletBal.toLocaleString()}
+                  </p>
+                  {isNegative ? (
+                    <p className="text-sm font-semibold text-red-700 mt-1">
+                      🔴 Owes {daysOwed} day{daysOwed !== 1 ? "s" : ""} of rent — swap blocked until cleared
+                    </p>
+                  ) : walletBal === 0 ? (
+                    <p className="text-sm text-orange-700 mt-1">⚠️ Wallet empty — swap will be blocked after next deduction</p>
+                  ) : (
+                    <p className="text-sm text-emerald-700 mt-1">✅ ~{daysLeft} day{daysLeft !== 1 ? "s" : ""} remaining at ₹{rate}/day</p>
+                  )}
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <Button size="sm" className="gap-1.5 bg-[#0D2D6B] hover:bg-[#0D2D6B]/90" onClick={() => setPaymentDialogOpen(true)}>
+                    <Plus className="h-3.5 w-3.5" /> Log Cash Payment
+                  </Button>
+                  <Button size="sm" variant="outline" className="gap-1.5" onClick={() => { setWalletAdjAmount(""); setWalletAdjReason(""); setWalletAdjOpen(true); }}>
+                    <Pencil className="h-3.5 w-3.5" /> Adjust Wallet
+                  </Button>
                 </div>
               </div>
-              <Button className="gap-2 self-start" onClick={() => setPaymentDialogOpen(true)}>
-                <Plus className="h-4 w-4" /> Log Cash Payment
-              </Button>
-            </div>
 
-            <div className="rounded-lg border overflow-hidden">
-              <Table>
-                <TableHeader className="bg-slate-50">
-                  <TableRow>
-                    <TableHead>Date</TableHead>
-                    <TableHead>Plan</TableHead>
-                    <TableHead>Amount</TableHead>
-                    <TableHead>Method</TableHead>
-                    <TableHead>Status</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {payments.length === 0 ? (
-                    <TableRow>
-                      <TableCell colSpan={5} className="h-32 text-center text-muted-foreground">
-                        <div className="flex flex-col items-center gap-2">
-                          <DollarSign className="h-8 w-8 text-muted-foreground/40" />
-                          <p>No payment records found</p>
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  ) : (
-                    payments.map((p: PaymentRecord) => (
-                      <TableRow key={p.id}>
-                        <TableCell className="text-sm">{p.payment_date ? format(new Date(p.payment_date), "dd MMM yyyy") : "—"}</TableCell>
-                        <TableCell>
-                          <Badge 
-                            variant="secondary" 
-                            className={
-                              p.plan_type === 'service' ? "bg-blue-50 text-blue-700 border-blue-200" :
-                              p.plan_type === 'security_deposit' ? "bg-indigo-50 text-indigo-700 border-indigo-200" :
-                              p.plan_type === 'custom' ? "bg-amber-50 text-amber-700 border-amber-200" :
-                              "bg-slate-100 text-slate-700 border-slate-200"
-                            }
-                          >
-                            {(p.plan_type ? p.plan_type.replace('_', ' ').toUpperCase() : "—")}
-                          </Badge>
-                        </TableCell>
-                        <TableCell className="font-medium">₹{p.amount.toLocaleString()}</TableCell>
-                        <TableCell>
-                          <Badge variant="outline" className={p.payment_method === 'cash' ? "bg-emerald-50 text-emerald-700 border-emerald-100" : p.payment_method === 'upi' ? "bg-blue-50 text-blue-700 border-blue-100" : ""}>
-                            {p.payment_method ? p.payment_method.toUpperCase() : "—"}
-                          </Badge>
-                        </TableCell>
-                        <TableCell>
-                          <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-semibold ${
-                            p.status === "paid" ? "bg-emerald-100 text-emerald-700" : "bg-red-100 text-red-700"
-                          }`}>
-                            {p.status === "paid" ? "Paid" : "Overdue"}
-                          </span>
-                        </TableCell>
+              {/* ── Wallet Transaction Ledger ── */}
+              <div>
+                <h3 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground mb-3 flex items-center gap-2">
+                  <DollarSign className="h-4 w-4" /> Wallet Ledger
+                </h3>
+                <div className="rounded-lg border overflow-hidden">
+                  <Table>
+                    <TableHeader className="bg-slate-50">
+                      <TableRow>
+                        <TableHead>Date</TableHead>
+                        <TableHead>Type</TableHead>
+                        <TableHead className="text-right">Amount</TableHead>
+                        <TableHead className="text-right">Balance After</TableHead>
+                        <TableHead>Notes</TableHead>
                       </TableRow>
-                    ))
-                  )}
-                </TableBody>
-              </Table>
+                    </TableHeader>
+                    <TableBody>
+                      {walletTransactions.length === 0 ? (
+                        <TableRow>
+                          <TableCell colSpan={5} className="h-20 text-center text-muted-foreground text-sm">
+                            No wallet transactions yet
+                          </TableCell>
+                        </TableRow>
+                      ) : walletTransactions.map((tx: WalletTx) => {
+                        const isDebit = tx.amount < 0;
+                        const txTypeLabels: Record<string, string> = {
+                          daily_deduction: "Daily Deduction",
+                          rental_credit:   "Rental Credit",
+                          admin_adjustment: "Admin Adjustment",
+                          onboarding:      "Onboarding",
+                          service_payment: "Service Payment",
+                        };
+                        return (
+                          <TableRow key={tx.id}>
+                            <TableCell className="text-sm text-muted-foreground whitespace-nowrap">
+                              {format(new Date(tx.created_at), "dd MMM, hh:mm a")}
+                            </TableCell>
+                            <TableCell>
+                              <Badge variant="secondary" className={
+                                tx.type === "daily_deduction"  ? "bg-red-50 text-red-700 border-red-200" :
+                                tx.type === "rental_credit"    ? "bg-emerald-50 text-emerald-700 border-emerald-200" :
+                                tx.type === "admin_adjustment" ? "bg-purple-50 text-purple-700 border-purple-200" :
+                                "bg-slate-100 text-slate-700"
+                              }>
+                                {txTypeLabels[tx.type] ?? tx.type}
+                              </Badge>
+                            </TableCell>
+                            <TableCell className={`text-right font-bold ${isDebit ? "text-red-600" : "text-emerald-700"}`}>
+                              {isDebit ? "" : "+"}{tx.amount.toLocaleString()}
+                            </TableCell>
+                            <TableCell className="text-right font-medium text-slate-700">
+                              ₹{tx.balance_after.toLocaleString()}
+                            </TableCell>
+                            <TableCell className="text-sm text-muted-foreground max-w-[220px] truncate">
+                              {tx.notes ?? "—"}
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })}
+                    </TableBody>
+                  </Table>
+                </div>
+              </div>
+
+              {/* ── Cash Payment History ── */}
+              <div>
+                <h3 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground mb-3 flex items-center gap-2">
+                  <CreditCard className="h-4 w-4" /> Payment Records
+                </h3>
+                <div className="rounded-lg border overflow-hidden">
+                  <Table>
+                    <TableHeader className="bg-slate-50">
+                      <TableRow>
+                        <TableHead>Date</TableHead>
+                        <TableHead>Plan</TableHead>
+                        <TableHead>Amount</TableHead>
+                        <TableHead>Method</TableHead>
+                        <TableHead>Status</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {payments.length === 0 ? (
+                        <TableRow>
+                          <TableCell colSpan={5} className="h-20 text-center text-muted-foreground text-sm">No payment records found</TableCell>
+                        </TableRow>
+                      ) : payments.map((p: PaymentRecord) => (
+                        <TableRow key={p.id}>
+                          <TableCell className="text-sm">{p.payment_date ? format(new Date(p.payment_date), "dd MMM yyyy") : "—"}</TableCell>
+                          <TableCell>
+                            <Badge variant="secondary" className={
+                              p.plan_type === "service"          ? "bg-blue-50 text-blue-700 border-blue-200" :
+                              p.plan_type === "security_deposit" ? "bg-indigo-50 text-indigo-700 border-indigo-200" :
+                              p.plan_type === "admin_adjustment" ? "bg-purple-50 text-purple-700 border-purple-200" :
+                              "bg-slate-100 text-slate-700 border-slate-200"
+                            }>
+                              {p.plan_type ? p.plan_type.replace(/_/g, " ").toUpperCase() : "—"}
+                            </Badge>
+                          </TableCell>
+                          <TableCell className="font-medium">₹{p.amount.toLocaleString()}</TableCell>
+                          <TableCell>
+                            <Badge variant="outline" className={
+                              p.payment_method === "cash" ? "bg-emerald-50 text-emerald-700 border-emerald-100" :
+                              p.payment_method === "upi"  ? "bg-blue-50 text-blue-700 border-blue-100" : ""
+                            }>
+                              {p.payment_method ? p.payment_method.toUpperCase() : "—"}
+                            </Badge>
+                          </TableCell>
+                          <TableCell>
+                            <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-semibold ${
+                              p.status === "paid" ? "bg-emerald-100 text-emerald-700" : "bg-red-100 text-red-700"
+                            }`}>
+                              {p.status === "paid" ? "Paid" : "Overdue"}
+                            </span>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              </div>
             </div>
-          </div>
-        )}
+          );
+        })()}
+
 
         {/* ═══ TAB 4: Service Requests ═══ */}
         {activeTab === "service" && (
@@ -1764,6 +1949,105 @@ export default function RiderDetailPage() {
         </DialogContent>
       </Dialog>
 
+      {/* ═══ LEAVE DIALOG ═══ */}
+      <Dialog open={leaveDialogOpen} onOpenChange={setLeaveDialogOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-purple-700">
+              <Calendar className="h-5 w-5" />
+              {leaveAction === "start" ? "Put Rider on Leave" : "Return Rider from Leave"}
+            </DialogTitle>
+            <DialogDescription>
+              {leaveAction === "start"
+                ? `Billing will be paused for ${rider.name} while on leave. Battery swap access will be blocked.`
+                : `${rider.name} will be returned to ${(rider.wallet_balance ?? 0) > 0 ? "active" : "suspended"} status. Billing resumes tomorrow.`}
+            </DialogDescription>
+          </DialogHeader>
+          {leaveAction === "start" && (
+            <div className="space-y-4 py-2">
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Reason *</label>
+                <Textarea
+                  placeholder="e.g. Vehicle in workshop for repair, rider sick leave..."
+                  value={leaveReason}
+                  onChange={(e) => setLeaveReason(e.target.value)}
+                  rows={3}
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Expected Return Date (optional)</label>
+                <Input type="date" value={leaveExpected} onChange={(e) => setLeaveExpected(e.target.value)} />
+              </div>
+            </div>
+          )}
+          <DialogFooter className="gap-2 sm:gap-0 mt-2">
+            <Button variant="ghost" onClick={() => setLeaveDialogOpen(false)}>Cancel</Button>
+            <Button
+              className={leaveAction === "start" ? "bg-purple-600 hover:bg-purple-700" : "bg-emerald-600 hover:bg-emerald-700"}
+              disabled={leaveMutation.isPending || (leaveAction === "start" && !leaveReason.trim())}
+              onClick={() => leaveMutation.mutate()}
+            >
+              {leaveMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+              {leaveAction === "start" ? "Confirm — Pause Billing" : "Confirm — Resume Billing"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ═══ WALLET ADJUSTMENT DIALOG ═══ */}
+      <Dialog open={walletAdjOpen} onOpenChange={setWalletAdjOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <DollarSign className="h-5 w-5" /> Adjust Wallet Balance
+            </DialogTitle>
+            <DialogDescription>
+              Current balance: <strong>₹{(rider.wallet_balance ?? 0).toLocaleString()}</strong>.
+              Use a positive number to add credit, negative to deduct.
+              A mandatory reason is required for audit trail.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Adjustment Amount (₹) *</label>
+              <Input
+                type="number"
+                placeholder="e.g. +230 or -460"
+                value={walletAdjAmount}
+                onChange={(e) => setWalletAdjAmount(e.target.value)}
+              />
+              {walletAdjAmount && !isNaN(parseFloat(walletAdjAmount)) && (
+                <p className="text-sm text-muted-foreground">
+                  New balance will be: <strong className={
+                    ((rider.wallet_balance ?? 0) + parseFloat(walletAdjAmount)) < 0 ? "text-red-600" : "text-emerald-700"
+                  }>₹{((rider.wallet_balance ?? 0) + parseFloat(walletAdjAmount)).toLocaleString()}</strong>
+                </p>
+              )}
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Reason *</label>
+              <Textarea
+                placeholder="e.g. Vehicle breakdown on Apr 15, waiving 1 day charge..."
+                value={walletAdjReason}
+                onChange={(e) => setWalletAdjReason(e.target.value)}
+                rows={2}
+              />
+            </div>
+          </div>
+          <DialogFooter className="gap-2 sm:gap-0 mt-2">
+            <Button variant="ghost" onClick={() => setWalletAdjOpen(false)}>Cancel</Button>
+            <Button
+              disabled={walletAdjMutation.isPending || !walletAdjAmount || !walletAdjReason.trim()}
+              onClick={() => walletAdjMutation.mutate()}
+              className="bg-[#0D2D6B] hover:bg-[#0D2D6B]/90"
+            >
+              {walletAdjMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+              Apply Adjustment
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* ═══ CASH PAYMENT DIALOG ═══ */}
       <Dialog open={paymentDialogOpen} onOpenChange={setPaymentDialogOpen}>
         <DialogContent className="sm:max-w-md">
@@ -1873,7 +2157,7 @@ export default function RiderDetailPage() {
                       onChange={(e) => {
                         const id = e.target.value;
                         setSelectedVehicleId(id);
-                        const v = sortedAvailableVehicles.find((x: { id: string }) => x.id === id);
+                        const v = (sortedAvailableVehicles as { id: string; vehicle_id?: string | null; chassis_number: string }[]).find((x) => x.id === id);
                         setAssignVehicleIdInput(
                           v ? ((v as { vehicle_id?: string | null; chassis_number: string }).vehicle_id || "").trim() : ""
                         );
@@ -1881,7 +2165,7 @@ export default function RiderDetailPage() {
                       className="flex h-10 w-full rounded-md border border-input bg-background px-3 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring"
                     >
                       <option value="" disabled>Select a vehicle...</option>
-                      {sortedAvailableVehicles.map((v: { id: string; vehicle_id?: string; chassis_number: string }) => (
+                      {(sortedAvailableVehicles as { id: string; vehicle_id?: string; chassis_number: string }[]).map((v) => (
                         <option key={v.id} value={v.id}>
                           {v.vehicle_id || v.chassis_number.slice(-6)} — Chassis: {v.chassis_number}
                         </option>

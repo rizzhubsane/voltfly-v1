@@ -76,9 +76,13 @@ export interface Database {
           status: string
           hub_id: string | null
           driver_id: string | null
-          wallet_balance?: number | null
+          wallet_balance: number | null
           outstanding_balance: number
           payment_status: string | null
+          daily_deduction_rate: number | null
+          leave_started_at: string | null
+          leave_reason: string | null
+          leave_expected_return: string | null
           created_at: string | null
         }
         Insert: {
@@ -92,6 +96,10 @@ export interface Database {
           wallet_balance?: number | null
           outstanding_balance?: number
           payment_status?: string | null
+          daily_deduction_rate?: number | null
+          leave_started_at?: string | null
+          leave_reason?: string | null
+          leave_expected_return?: string | null
           created_at?: string | null
         }
         Update: {
@@ -105,6 +113,10 @@ export interface Database {
           wallet_balance?: number | null
           outstanding_balance?: number
           payment_status?: string | null
+          daily_deduction_rate?: number | null
+          leave_started_at?: string | null
+          leave_reason?: string | null
+          leave_expected_return?: string | null
           created_at?: string | null
         }
         Relationships: [
@@ -672,6 +684,75 @@ export interface Database {
             referencedColumns: ["id"]
           }
         ]
+      }
+      wallet_transactions: {
+        Row: {
+          id: string
+          rider_id: string
+          amount: number
+          type: string
+          balance_before: number
+          balance_after: number
+          reference_id: string | null
+          notes: string | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          rider_id: string
+          amount: number
+          type: string
+          balance_before: number
+          balance_after: number
+          reference_id?: string | null
+          notes?: string | null
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          rider_id?: string
+          amount?: number
+          type?: string
+          balance_before?: number
+          balance_after?: number
+          reference_id?: string | null
+          notes?: string | null
+          created_at?: string
+        }
+        Relationships: []
+      }
+      balance_audit_log: {
+        Row: {
+          id: string
+          rider_id: string
+          admin_id: string | null
+          old_balance: number
+          adjustment: number
+          new_balance: number
+          reason: string
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          rider_id: string
+          admin_id?: string | null
+          old_balance: number
+          adjustment: number
+          new_balance: number
+          reason: string
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          rider_id?: string
+          admin_id?: string | null
+          old_balance?: number
+          adjustment?: number
+          new_balance?: number
+          reason?: string
+          created_at?: string
+        }
+        Relationships: []
       }
     }
     Views: {
