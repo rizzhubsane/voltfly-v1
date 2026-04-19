@@ -53,7 +53,7 @@ export async function POST(request: Request) {
     let newWalletBalance: number | null = null;
 
     if (isRentalExtension) {
-      // Fetch current wallet balance
+      // Fetch current wallet balance for the transaction log
       const { data: rider } = await supabaseAdmin
         .from("riders")
         .select("wallet_balance, status, driver_id, daily_deduction_rate")
@@ -61,16 +61,23 @@ export async function POST(request: Request) {
         .single();
 
       const currentWallet   = rider?.wallet_balance ?? 0;
-      const walletAfter     = currentWallet + amount;  // always a number
-      newWalletBalance      = walletAfter;
       const dailyRate       = rider?.daily_deduction_rate ?? 230;
 
+      // 2. Update wallet balance atomically via RPC
+      const { data: rpcData, error: rpcErr } = await supabaseAdmin.rpc("increment_wallet", {
+        rider_id: riderId,
+        amount: amount,
+      });
 
-      // 2. Update wallet balance
+      if (rpcErr) throw rpcErr;
+      
+      const walletAfter = Number(rpcData);
+      newWalletBalance = walletAfter;
+
+      // 2b. Sync other rider fields
       await supabaseAdmin
         .from("riders")
         .update({
-          wallet_balance:      newWalletBalance,
           payment_status:      "paid",
           outstanding_balance: 0,          // legacy field — keep zeroed
           daily_deduction_rate: 230,
@@ -89,38 +96,10 @@ export async function POST(request: Request) {
         created_at:     nowISO,
       });
 
-      // 4. Auto-unblock battery if wallet goes positive
-      if (walletAfter > 0 && rider?.status === "suspended") {
-        const { data: battery } = await supabaseAdmin
-          .from("batteries")
-          .select("status, driver_id")
-          .eq("current_rider_id", riderId)
-          .maybeSingle();
-
-        if (battery?.status === "blocked" && battery.driver_id) {
-          try {
-            await supabaseAdmin.functions.invoke("battery-unblock", {
-              body: {
-                driverId:    battery.driver_id,
-                riderId:     riderId,
-                triggeredBy: adminId,
-                triggerType: "cash_payment",
-                reason:      `Cash payment ₹${amount} received — wallet now ₹${walletAfter} — auto-unblocked`,
-              },
-            });
-            await supabaseAdmin
-              .from("batteries")
-              .update({ status: "active", last_action_at: nowISO })
-              .eq("current_rider_id", riderId);
-            await supabaseAdmin
-              .from("riders")
-              .update({ status: "active" })
-              .eq("id", riderId);
-          } catch (err) {
-            console.error("[cash] Battery unblock failed:", err);
-          }
-        }
-      }
+      // NOTE: We DO NOT manually unblock the battery here.
+      // The Supabase Webhook (handle-rider-state-change) will automatically
+      // detect the wallet_balance increase and trigger the unblock if the new balance
+      // meets the daily threshold.
 
       console.log(`[cash] Rider ${riderId}: wallet ₹${currentWallet} → ₹${walletAfter} (+₹${amount})`);
 

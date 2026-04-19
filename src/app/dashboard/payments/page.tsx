@@ -316,9 +316,12 @@ export default function PaymentsPage() {
       
       let matchesDate = true;
       if (d && dateRange) {
-        if (dateRange.from && d < startOfDay(dateRange.from)) matchesDate = false;
-        const effectiveTo = dateRange.to || dateRange.from;
-        if (effectiveTo && d >= addDays(startOfDay(effectiveTo), 1)) matchesDate = false;
+        if (dateRange.from && d < startOfDay(dateRange.from)) {
+          matchesDate = false;
+        }
+        if (dateRange.to && d >= addDays(startOfDay(dateRange.to), 1)) {
+          matchesDate = false;
+        }
       }
 
       return matchesSearch && matchesMethod && matchesStatus && matchesHub && matchesDate;

@@ -172,9 +172,13 @@ export async function POST(request: Request) {
     }
 
     // ── Step 5: Activate rider ────────────────────────────────────────────
+    // wallet_balance = rentalCredit only (always ≥ 0).
+    // The outstanding balance is tracked as a PENDING payment record (Step 4)
+    // and will be cleared when the rider next pays — it must NOT be subtracted
+    // here or the rider starts on day 1 with a negative balance.
     const riderUpdate: Record<string, unknown> = {
       status: "active",
-      wallet_balance: rentalCredit - outstandingBalance,
+      wallet_balance: rentalCredit,
       daily_deduction_rate: 230,
     };
     if (hubId) {
