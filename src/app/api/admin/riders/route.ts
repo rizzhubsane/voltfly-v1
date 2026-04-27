@@ -39,10 +39,7 @@ export async function GET(request: Request) {
       .select("*") // includes driver_id since it's now a column on riders
       .order("created_at", { ascending: false });
 
-    // Hub managers are scoped to their own hub regardless of the query param.
-    if (auth.admin.role === "hub_manager" && auth.admin.hub_id) {
-      query = query.eq("hub_id", auth.admin.hub_id);
-    } else if (hubId) {
+    if (hubId) {
       query = query.eq("hub_id", hubId);
     }
 
@@ -170,11 +167,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Primary phone number is required" }, { status: 400 });
     }
 
-    // Hub managers can only add riders to their own hub
-    const effectiveHubId =
-      auth.admin.role === "hub_manager" && auth.admin.hub_id
-        ? auth.admin.hub_id
-        : hub_id || null;
+    const effectiveHubId = hub_id || null;
 
     // Check for duplicate phone number
     const { data: existing } = await supabaseAdmin

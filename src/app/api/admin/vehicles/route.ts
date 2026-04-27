@@ -43,10 +43,7 @@ export async function GET(request: Request) {
     const available = searchParams.get("available") === "true";
     const checklistVehicleId = searchParams.get("checklist");
 
-    // Hub managers are always scoped to their own hub regardless of query param.
-    const hubId = auth.admin.role === "hub_manager" && auth.admin.hub_id
-      ? auth.admin.hub_id
-      : searchParams.get("hubId");
+    const hubId = searchParams.get("hubId");
 
     // ── Return handover checklist for a given vehicle ─────────────────────
     if (checklistVehicleId) {
@@ -149,17 +146,7 @@ export async function POST(request: Request) {
     // Derive who recorded this from the verified auth token.
     const adminId = auth.admin.id;
 
-    // Hub managers may only touch vehicles that belong to their hub.
-    if (auth.admin.role === "hub_manager" && auth.admin.hub_id) {
-      const targetHubId = vehicleData.hub_id ?? (
-        id
-          ? (await supabaseAdmin.from("vehicles").select("hub_id").eq("id", id).single()).data?.hub_id
-          : null
-      );
-      if (targetHubId && targetHubId !== auth.admin.hub_id) {
-        return NextResponse.json({ error: "Forbidden: Vehicle belongs to a different hub." }, { status: 403 });
-      }
-    }
+
 
     if (id) {
       let pairingDriverId: string | null = null;
@@ -326,17 +313,7 @@ export async function PATCH(request: Request) {
     // Derive who recorded this from the verified auth token — never trust body.
     const patchAdminId = auth.admin.id;
 
-    // Hub managers may only process returns for vehicles in their hub.
-    if (auth.admin.role === "hub_manager" && auth.admin.hub_id) {
-      const { data: veh } = await supabaseAdmin
-        .from("vehicles")
-        .select("hub_id")
-        .eq("id", vehicle_id)
-        .single();
-      if (veh?.hub_id && veh.hub_id !== auth.admin.hub_id) {
-        return NextResponse.json({ error: "Forbidden: Vehicle belongs to a different hub." }, { status: 403 });
-      }
-    }
+
 
     const { error } = await supabaseAdmin
       .from("vehicle_handover_checklists")

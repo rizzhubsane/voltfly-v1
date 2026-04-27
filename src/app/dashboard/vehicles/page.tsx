@@ -145,8 +145,8 @@ export default function VehiclesPage() {
 
   // ── Queries ──────────────────────────────────────────────────────────────
   const { data: vehicles = [], isLoading, error } = useQuery({
-    queryKey: ["vehicles", isSuperAdmin ? null : adminHubId],
-    queryFn: () => fetchVehicles(isSuperAdmin ? null : adminHubId),
+    queryKey: ["vehicles"],
+    queryFn: () => fetchVehicles(null),
   });
 
   const { data: hubs = [] } = useQuery({
@@ -197,7 +197,7 @@ export default function VehiclesPage() {
       );
     }
 
-    if (hubFilter !== "all" && isSuperAdmin) {
+    if (hubFilter !== "all") {
       list = list.filter((v) => v.hub_id === hubFilter);
     }
 
@@ -213,8 +213,7 @@ export default function VehiclesPage() {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const idB = ((b as any).vehicle_id || "").toString().toUpperCase();
       return idA.localeCompare(idB, undefined, { numeric: true, sensitivity: 'base' });
-    });
-  }, [vehicles, search, hubFilter, statusFilter, isSuperAdmin]);
+  }, [vehicles, search, hubFilter, statusFilter]);
 
   // ── Stats ────────────────────────────────────────────────────────────────
   const stats = useMemo(() => {
@@ -338,16 +337,14 @@ export default function VehiclesPage() {
               <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Filters</span>
             </div>
 
-            {isSuperAdmin && (
-              <select
-                className="h-10 rounded-md border bg-white px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20"
-                value={hubFilter}
-                onChange={(e) => setHubFilter(e.target.value)}
-              >
-                <option value="all">All Hubs</option>
-                {hubs.map((h) => <option key={h.id} value={h.id}>{h.name}</option>)}
-              </select>
-            )}
+            <select
+              className="h-10 rounded-md border bg-white px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20"
+              value={hubFilter}
+              onChange={(e) => setHubFilter(e.target.value)}
+            >
+              <option value="all">All Hubs</option>
+              {hubs.map((h) => <option key={h.id} value={h.id}>{h.name}</option>)}
+            </select>
 
             <select
               className="h-10 rounded-md border bg-white px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20"

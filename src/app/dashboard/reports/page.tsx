@@ -56,15 +56,11 @@ interface RiderRow {
   created_at: string | null;
   payment_status: string | null;
   wallet_balance: number | null;
+  gig_company: string | null;
   hubs: { name: string } | null;
 }
 
-interface KycRow {
-  id: string;
-  kyc_status: string;
-  created_at: string | null;
-  rider_id: string;
-}
+
 
 interface ServiceRequestRow {
   id: string;
@@ -87,7 +83,6 @@ interface DepositRow {
 interface ReportsData {
   payments: PaymentRow[];
   riders: RiderRow[];
-  kyc: KycRow[];
   service_requests: ServiceRequestRow[];
   security_deposits: DepositRow[];
 }
@@ -187,7 +182,6 @@ export default function ReportsPage() {
 
   const payments         = useMemo(() => data?.payments         ?? [], [data?.payments]);
   const riders           = useMemo(() => data?.riders           ?? [], [data?.riders]);
-  const kycs             = useMemo(() => data?.kyc              ?? [], [data?.kyc]);
   const serviceRequests  = useMemo(() => data?.service_requests ?? [], [data?.service_requests]);
   const securityDeposits = useMemo(() => data?.security_deposits ?? [], [data?.security_deposits]);
 
@@ -278,6 +272,15 @@ export default function ReportsPage() {
       byStatus[s] = (byStatus[s] ?? 0) + 1;
     });
 
+    // Gig company distribution
+    const gigCounts: Record<string, number> = {};
+    list.forEach((r) => {
+      const gig = r.gig_company ?? "Direct / Private";
+      gigCounts[gig] = (gigCounts[gig] ?? 0) + 1;
+    });
+    const topGigs = Object.entries(gigCounts)
+      .sort(([, a], [, b]) => b - a);
+
     // Hub distribution
     const hubCounts: Record<string, number> = {};
     list.forEach((r) => {
@@ -297,26 +300,13 @@ export default function ReportsPage() {
     const today = now;
     const overdue = list.filter(
       (r) =>
-        r.payment_status === "pending" &&
         r.wallet_balance !== null && r.wallet_balance <= 0
     ).length;
 
-    return { total, byStatus, topHubs, newThisMonth, overdue };
+    return { total, byStatus, topHubs, topGigs, newThisMonth, overdue };
   }, [riders, monthStart, now]);
 
-  // ── KYC stats ─────────────────────────────────────────────────────────
-  const kycStats = useMemo(
-    () => {
-      const list = kycs ?? [];
-      return {
-        pending:  list.filter((k) => k.kyc_status === "pending").length,
-        approved: list.filter((k) => k.kyc_status === "approved").length,
-        rejected: list.filter((k) => k.kyc_status === "rejected").length,
-        total:    list.length,
-      };
-    },
-    [kycs]
-  );
+
 
   // ── MoM growth ────────────────────────────────────────────────────────
   const momGrowth =
@@ -520,13 +510,7 @@ export default function ReportsPage() {
             icon={TrendingUp}
             colorClass="text-blue-600 bg-blue-50"
           />
-          <MetricCard
-            title="KYC Pending"
-            value={kycStats.pending.toString()}
-            sub={`${kycStats.approved} approved · ${kycStats.rejected} rejected`}
-            icon={Clock}
-            colorClass="text-amber-600 bg-amber-50"
-          />
+
         </div>
       </section>
 
@@ -643,35 +627,7 @@ export default function ReportsPage() {
         </Card>
       </div>
 
-      {/* ── KYC Overview ─────────────────────────────────────────────────── */}
-      {kycStats.total > 0 && (
-        <section>
-          <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground mb-4 flex items-center gap-2">
-            <ShieldCheck className="h-4 w-4" /> KYC Overview
-          </h2>
-          <div className="grid gap-4 sm:grid-cols-3">
-            <MetricCard
-              title="KYC Approved"
-              value={kycStats.approved.toString()}
-              sub={`of ${kycStats.total} total submissions`}
-              icon={CheckCircle2}
-              colorClass="text-emerald-600 bg-emerald-50"
-            />
-            <MetricCard
-              title="KYC Pending Review"
-              value={kycStats.pending.toString()}
-              icon={Clock}
-              colorClass="text-amber-600 bg-amber-50"
-            />
-            <MetricCard
-              title="KYC Rejected"
-              value={kycStats.rejected.toString()}
-              icon={AlertTriangle}
-              colorClass="text-red-600 bg-red-50"
-            />
-          </div>
-        </section>
-      )}
+
 
       {/* ── Service Requests Summary ─────────────────────────────────────── */}
       {serviceRequests.length > 0 && (
@@ -709,49 +665,88 @@ export default function ReportsPage() {
       )}
 
       {/* ── Hub Distribution ─────────────────────────────────────────────── */}
-      {riderStats.topHubs.length > 0 && (
-        <section>
-          <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground mb-4 flex items-center gap-2">
-            <Users className="h-4 w-4" /> Hub Breakdown
-          </h2>
-          <Card>
-            <CardContent className="p-0">
-              <Table>
-                <TableHeader className="bg-slate-50/50">
-                  <TableRow>
-                    <TableHead>#</TableHead>
-                    <TableHead>Hub</TableHead>
-                    <TableHead className="text-right">Riders</TableHead>
-                    <TableHead className="text-right">Share</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {riderStats.topHubs.map(([hub, count], i) => (
-                    <TableRow key={hub} className="hover:bg-slate-50/50">
-                      <TableCell className="w-12 font-bold text-muted-foreground">
-                        {i + 1}
-                      </TableCell>
-                      <TableCell className="font-medium">{hub}</TableCell>
-                      <TableCell className="text-right font-bold">{count}</TableCell>
-                      <TableCell className="text-right">
-                        <div className="flex items-center justify-end gap-2">
-                          <div className="w-24">
-                            <ProgressBar
-                              value={count}
-                              max={riderStats.total}
-                              color="bg-primary"
-                            />
-                          </div>
-                        </div>
-                      </TableCell>
+      <div className="grid gap-6 lg:grid-cols-2">
+        {riderStats.topHubs.length > 0 && (
+          <section>
+            <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground mb-4 flex items-center gap-2">
+              <Users className="h-4 w-4" /> Hub Breakdown
+            </h2>
+            <Card>
+              <CardContent className="p-0">
+                <Table>
+                  <TableHeader className="bg-slate-50/50">
+                    <TableRow>
+                      <TableHead>Hub</TableHead>
+                      <TableHead className="text-right">Riders</TableHead>
+                      <TableHead className="text-right">Share</TableHead>
                     </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </CardContent>
-          </Card>
-        </section>
-      )}
+                  </TableHeader>
+                  <TableBody>
+                    {riderStats.topHubs.map(([hub, count], i) => (
+                      <TableRow key={hub} className="hover:bg-slate-50/50">
+                        <TableCell className="font-medium">{hub}</TableCell>
+                        <TableCell className="text-right font-bold">{count}</TableCell>
+                        <TableCell className="text-right">
+                          <div className="flex items-center justify-end gap-2">
+                            <div className="w-24">
+                              <ProgressBar
+                                value={count}
+                                max={riderStats.total}
+                                color="bg-primary"
+                              />
+                            </div>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </CardContent>
+            </Card>
+          </section>
+        )}
+
+        {/* ── Gig Company Analysis ─────────────────────────────────────────── */}
+        {riderStats.topGigs.length > 0 && (
+          <section>
+            <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground mb-4 flex items-center gap-2">
+              <TrendingUp className="h-4 w-4" /> Gig Company Analysis
+            </h2>
+            <Card>
+              <CardContent className="p-0">
+                <Table>
+                  <TableHeader className="bg-slate-50/50">
+                    <TableRow>
+                      <TableHead>Company</TableHead>
+                      <TableHead className="text-right">Riders</TableHead>
+                      <TableHead className="text-right">Share</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {riderStats.topGigs.map(([gig, count]) => (
+                      <TableRow key={gig} className="hover:bg-slate-50/50">
+                        <TableCell className="font-medium">{gig}</TableCell>
+                        <TableCell className="text-right font-bold">{count}</TableCell>
+                        <TableCell className="text-right">
+                          <div className="flex items-center justify-end gap-2">
+                            <div className="w-24">
+                              <ProgressBar
+                                value={count}
+                                max={riderStats.total}
+                                color="bg-indigo-500"
+                              />
+                            </div>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </CardContent>
+            </Card>
+          </section>
+        )}
+      </div>
     </div>
   );
 }

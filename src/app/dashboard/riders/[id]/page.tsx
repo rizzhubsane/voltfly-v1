@@ -430,15 +430,14 @@ export default function RiderDetailPage() {
   }, [data?.rider?.driver_id, hasInitUpgrid]);
 
   const { data: availableVehicles, isLoading: isLoadingVehicles } = useQuery({
-    queryKey: ["available-vehicles", data?.rider?.hub_id],
+    queryKey: ["available-vehicles"],
     queryFn: async () => {
-      if (!data?.rider?.hub_id) return [];
-      const res = await adminFetch(`/api/admin/vehicles?hubId=${data.rider.hub_id}&available=true`);
+      const res = await adminFetch(`/api/admin/vehicles?available=true`);
       const { vehicles, error } = await res.json();
       if (!res.ok || error) throw new Error(error || "Failed to fetch vehicles");
       return vehicles;
     },
-    enabled: assignVehicleOpen && assignStep === 1 && !!data?.rider?.hub_id,
+    enabled: assignVehicleOpen && assignStep === 1,
   });
 
   const sortedAvailableVehicles = useMemo(
@@ -1513,6 +1512,17 @@ export default function RiderDetailPage() {
           const daysOwed   = isNegative ? Math.ceil(Math.abs(walletBal) / rate) : 0;
           const daysLeft   = !isNegative ? Math.floor(walletBal / rate) : 0;
 
+          const PLAN_TYPE_CONFIG: Record<string, { label: string; className: string }> = {
+            security_deposit:  { label: "Security Deposit",  className: "bg-indigo-50 text-indigo-700 border-indigo-200" },
+            onboarding:        { label: "Onboarding Fee",    className: "bg-amber-50 text-amber-700 border-amber-200" },
+            verification:      { label: "Verification Fee",  className: "bg-amber-50 text-amber-700 border-amber-200" },
+            daily:             { label: "Daily",             className: "bg-slate-100 text-slate-700 border-slate-200" },
+            weekly:            { label: "Weekly",            className: "bg-slate-100 text-slate-700 border-slate-200" },
+            monthly:           { label: "Monthly",           className: "bg-slate-100 text-slate-700 border-slate-200" },
+            service:           { label: "Service",           className: "bg-blue-50 text-blue-700 border-blue-200" },
+            admin_adjustment:  { label: "Adjustment",        className: "bg-purple-50 text-purple-700 border-purple-200" },
+          };
+
           return (
             <div className="space-y-6">
               {/* ── Wallet Summary Card ── */}
@@ -1544,71 +1554,7 @@ export default function RiderDetailPage() {
                 </div>
               </div>
 
-              {/* ── Wallet Transaction Ledger ── */}
-              <div>
-                <h3 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground mb-3 flex items-center gap-2">
-                  <DollarSign className="h-4 w-4" /> Wallet Ledger
-                </h3>
-                <div className="rounded-lg border overflow-hidden">
-                  <Table>
-                    <TableHeader className="bg-slate-50">
-                      <TableRow>
-                        <TableHead>Date</TableHead>
-                        <TableHead>Type</TableHead>
-                        <TableHead className="text-right">Amount</TableHead>
-                        <TableHead className="text-right">Balance After</TableHead>
-                        <TableHead>Notes</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {walletTransactions.length === 0 ? (
-                        <TableRow>
-                          <TableCell colSpan={5} className="h-20 text-center text-muted-foreground text-sm">
-                            No wallet transactions yet
-                          </TableCell>
-                        </TableRow>
-                      ) : walletTransactions.map((tx: WalletTx) => {
-                        const isDebit = tx.amount < 0;
-                        const txTypeLabels: Record<string, string> = {
-                          daily_deduction: "Daily Deduction",
-                          rental_credit:   "Rental Credit",
-                          admin_adjustment: "Admin Adjustment",
-                          onboarding:      "Onboarding",
-                          service_payment: "Service Payment",
-                        };
-                        return (
-                          <TableRow key={tx.id}>
-                            <TableCell className="text-sm text-muted-foreground whitespace-nowrap">
-                              {format(new Date(tx.created_at), "dd MMM, hh:mm a")}
-                            </TableCell>
-                            <TableCell>
-                              <Badge variant="secondary" className={
-                                tx.type === "daily_deduction"  ? "bg-red-50 text-red-700 border-red-200" :
-                                tx.type === "rental_credit"    ? "bg-emerald-50 text-emerald-700 border-emerald-200" :
-                                tx.type === "admin_adjustment" ? "bg-purple-50 text-purple-700 border-purple-200" :
-                                "bg-slate-100 text-slate-700"
-                              }>
-                                {txTypeLabels[tx.type] ?? tx.type}
-                              </Badge>
-                            </TableCell>
-                            <TableCell className={`text-right font-bold ${isDebit ? "text-red-600" : "text-emerald-700"}`}>
-                              {isDebit ? "" : "+"}{tx.amount.toLocaleString()}
-                            </TableCell>
-                            <TableCell className="text-right font-medium text-slate-700">
-                              ₹{tx.balance_after.toLocaleString()}
-                            </TableCell>
-                            <TableCell className="text-sm text-muted-foreground max-w-[220px] truncate">
-                              {tx.notes ?? "—"}
-                            </TableCell>
-                          </TableRow>
-                        );
-                      })}
-                    </TableBody>
-                  </Table>
-                </div>
-              </div>
-
-              {/* ── Cash Payment History ── */}
+              {/* ── Payment Records ── */}
               <div>
                 <h3 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground mb-3 flex items-center gap-2">
                   <CreditCard className="h-4 w-4" /> Payment Records
@@ -1618,7 +1564,7 @@ export default function RiderDetailPage() {
                     <TableHeader className="bg-slate-50">
                       <TableRow>
                         <TableHead>Date</TableHead>
-                        <TableHead>Plan</TableHead>
+                        <TableHead>Type</TableHead>
                         <TableHead>Amount</TableHead>
                         <TableHead>Method</TableHead>
                         <TableHead>Status</TableHead>
@@ -1627,39 +1573,47 @@ export default function RiderDetailPage() {
                     <TableBody>
                       {payments.length === 0 ? (
                         <TableRow>
-                          <TableCell colSpan={5} className="h-20 text-center text-muted-foreground text-sm">No payment records found</TableCell>
-                        </TableRow>
-                      ) : payments.map((p: PaymentRecord) => (
-                        <TableRow key={p.id}>
-                          <TableCell className="text-sm">{p.payment_date ? format(new Date(p.payment_date), "dd MMM yyyy") : "—"}</TableCell>
-                          <TableCell>
-                            <Badge variant="secondary" className={
-                              p.plan_type === "service"          ? "bg-blue-50 text-blue-700 border-blue-200" :
-                              p.plan_type === "security_deposit" ? "bg-indigo-50 text-indigo-700 border-indigo-200" :
-                              p.plan_type === "admin_adjustment" ? "bg-purple-50 text-purple-700 border-purple-200" :
-                              "bg-slate-100 text-slate-700 border-slate-200"
-                            }>
-                              {p.plan_type ? p.plan_type.replace(/_/g, " ").toUpperCase() : "—"}
-                            </Badge>
-                          </TableCell>
-                          <TableCell className="font-medium">₹{p.amount.toLocaleString()}</TableCell>
-                          <TableCell>
-                            <Badge variant="outline" className={
-                              p.payment_method === "cash" ? "bg-emerald-50 text-emerald-700 border-emerald-100" :
-                              p.payment_method === "upi"  ? "bg-blue-50 text-blue-700 border-blue-100" : ""
-                            }>
-                              {p.payment_method ? p.payment_method.toUpperCase() : "—"}
-                            </Badge>
-                          </TableCell>
-                          <TableCell>
-                            <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-semibold ${
-                              p.status === "paid" ? "bg-emerald-100 text-emerald-700" : "bg-red-100 text-red-700"
-                            }`}>
-                              {p.status === "paid" ? "Paid" : "Overdue"}
-                            </span>
+                          <TableCell colSpan={5} className="h-24 text-center text-muted-foreground text-sm">
+                            No payment records found
                           </TableCell>
                         </TableRow>
-                      ))}
+                      ) : payments.map((p: PaymentRecord) => {
+                        const typeKey = (p.plan_type ?? "").toLowerCase();
+                        const typeCfg = PLAN_TYPE_CONFIG[typeKey] ?? {
+                          label: (p.plan_type ?? "—").replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase()),
+                          className: "bg-slate-100 text-slate-700 border-slate-200",
+                        };
+                        return (
+                          <TableRow key={p.id}>
+                            <TableCell className="text-sm text-muted-foreground whitespace-nowrap">
+                              {p.payment_date ? format(new Date(p.payment_date), "dd MMM yyyy") : "—"}
+                            </TableCell>
+                            <TableCell>
+                              <Badge variant="secondary" className={typeCfg.className}>
+                                {typeCfg.label}
+                              </Badge>
+                            </TableCell>
+                            <TableCell className="font-semibold">₹{p.amount.toLocaleString()}</TableCell>
+                            <TableCell>
+                              <Badge variant="outline" className={
+                                p.payment_method === "cash" ? "bg-emerald-50 text-emerald-700 border-emerald-100" :
+                                p.payment_method === "upi"  ? "bg-blue-50 text-blue-700 border-blue-100" : ""
+                              }>
+                                {p.payment_method ? p.payment_method.toUpperCase() : "—"}
+                              </Badge>
+                            </TableCell>
+                            <TableCell>
+                              <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-semibold ${
+                                p.status === "paid" ? "bg-emerald-100 text-emerald-700" :
+                                p.status === "held" ? "bg-indigo-100 text-indigo-700" :
+                                "bg-red-100 text-red-700"
+                              }`}>
+                                {p.status === "paid" ? "Paid" : p.status === "held" ? "Held" : "Overdue"}
+                              </span>
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })}
                     </TableBody>
                   </Table>
                 </div>
@@ -1667,6 +1621,7 @@ export default function RiderDetailPage() {
             </div>
           );
         })()}
+
 
 
         {/* ═══ TAB 4: Service Requests ═══ */}
@@ -2118,7 +2073,7 @@ export default function RiderDetailPage() {
             <DialogTitle>{assignStep === 1 ? "Assign Vehicle (Step 1 of 2)" : "Handover Condition Checklist (Step 2 of 2)"}</DialogTitle>
             <DialogDescription>
               {assignStep === 1 
-                ? `Select an available vehicle in ` + (rider.hubs?.name || "this hub") + `.`
+                ? `Select an available vehicle from any hub.`
                 : `Tick the items that are present/functional at the time of handing over the vehicle.`}
             </DialogDescription>
           </DialogHeader>
@@ -2131,7 +2086,7 @@ export default function RiderDetailPage() {
                 </div>
               ) : availableVehicles?.length === 0 ? (
                 <div className="rounded-md border p-4 text-center text-sm text-muted-foreground">
-                  No vehicles are currently available in this hub.
+                  No vehicles are currently available in the fleet.
                 </div>
               ) : (
                 <div className="space-y-4">
@@ -2147,7 +2102,7 @@ export default function RiderDetailPage() {
                       className="font-mono"
                     />
                     <p className="text-xs text-muted-foreground">
-                      Must match an available vehicle in this hub. Blur or use Next to apply.
+                      Must match an available vehicle ID. Blur or use Next to apply.
                     </p>
                   </div>
                   <div className="space-y-2">
@@ -2165,9 +2120,9 @@ export default function RiderDetailPage() {
                       className="flex h-10 w-full rounded-md border border-input bg-background px-3 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring"
                     >
                       <option value="" disabled>Select a vehicle...</option>
-                      {(sortedAvailableVehicles as { id: string; vehicle_id?: string; chassis_number: string }[]).map((v) => (
+                      {(sortedAvailableVehicles as { id: string; vehicle_id?: string; chassis_number: string; hubs?: { name: string } }[]).map((v) => (
                         <option key={v.id} value={v.id}>
-                          {v.vehicle_id || v.chassis_number.slice(-6)} — Chassis: {v.chassis_number}
+                          {v.vehicle_id || v.chassis_number.slice(-6)} — {v.hubs?.name || "No Hub"} (Chassis: {v.chassis_number})
                         </option>
                       ))}
                     </select>
@@ -2196,7 +2151,7 @@ export default function RiderDetailPage() {
                   if (assignVehicleIdInput.trim()) {
                     const resolved = resolveAssignVehicleIdInput();
                     if (!resolved) {
-                      toast.error("No vehicle matches that Vehicle ID in this hub.");
+                      toast.error("No vehicle matches that Vehicle ID.");
                       return;
                     }
                     vid = resolved;

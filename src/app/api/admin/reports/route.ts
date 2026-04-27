@@ -41,7 +41,6 @@ export async function GET(request: Request) {
     const [
       paymentsResult,
       ridersResult,
-      kycResult,
       serviceRequestsResult,
       depositsResult,
     ] = await Promise.all([
@@ -52,12 +51,10 @@ export async function GET(request: Request) {
 
       supabaseAdmin
         .from("riders")
-        .select("id, status, hub_id, created_at, payment_status, wallet_balance")
+        .select("id, status, hub_id, created_at, payment_status, wallet_balance, gig_company")
         .order("created_at", { ascending: false }),
 
-      supabaseAdmin
-        .from("kyc")
-        .select("id, kyc_status, created_at, rider_id"),
+
 
       supabaseAdmin
         .from("service_requests")
@@ -72,7 +69,7 @@ export async function GET(request: Request) {
     // Collect errors (non-fatal: return empty array and log)
     if (paymentsResult.error) console.error("[reports] payments:", paymentsResult.error.message);
     if (ridersResult.error)   console.error("[reports] riders:",   ridersResult.error.message);
-    if (kycResult.error)      console.error("[reports] kyc:",      kycResult.error.message);
+
     if (serviceRequestsResult.error) console.error("[reports] service_requests:", serviceRequestsResult.error.message);
     if (depositsResult.error) console.error("[reports] security_deposits:", depositsResult.error.message);
 
@@ -99,7 +96,6 @@ export async function GET(request: Request) {
     return NextResponse.json({
       payments:          paymentsResult.data          ?? [],
       riders:            ridersWithHub,
-      kyc:               kycResult.data               ?? [],
       service_requests:  serviceRequestsResult.data   ?? [],
       security_deposits: depositsResult.data          ?? [],
     });

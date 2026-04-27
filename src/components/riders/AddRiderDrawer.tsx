@@ -96,7 +96,7 @@ const EMPTY_KYC: KycFormValues = {
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
-export function AddRiderDrawer({ isSuperAdmin, defaultHubId, onSuccess }: AddRiderDrawerProps) {
+export function AddRiderDrawer({ defaultHubId, onSuccess }: AddRiderDrawerProps) {
   const queryClient = useQueryClient();
 
   const [rider, setRider] = useState<RiderFormValues>({ ...EMPTY_RIDER, hub_id: defaultHubId || "" });
@@ -114,7 +114,7 @@ export function AddRiderDrawer({ isSuperAdmin, defaultHubId, onSuccess }: AddRid
       const json = await res.json();
       return json.hubs ?? [];
     },
-    enabled: isSuperAdmin,
+    enabled: true,
   });
 
   const hasKycData = Object.values(kyc).some((v) => v.trim() !== "");
@@ -248,32 +248,30 @@ export function AddRiderDrawer({ isSuperAdmin, defaultHubId, onSuccess }: AddRid
           {errors.phone_2 && <p className="text-xs font-medium text-destructive">{errors.phone_2}</p>}
         </div>
 
-        {/* ── Hub (super admin only) ───────────────────────────────────── */}
-        {isSuperAdmin && (
-          <div className="space-y-2">
-            <Label className="text-xs font-bold uppercase tracking-wider text-slate-500 flex items-center gap-1.5">
-              <Building2 className="h-3 w-3" /> Hub
-            </Label>
-            <Select
-              value={rider.hub_id || "none"}
-              onValueChange={(v) => setRider((p) => ({ ...p, hub_id: v === "none" ? "" : v }))}
-            >
-              <SelectTrigger className="h-10 rounded-xl border-slate-200 bg-white">
-                <SelectValue placeholder="Assign to hub..." />
-              </SelectTrigger>
-              <SelectContent className="rounded-xl">
-                <SelectItem value="none" className="italic text-muted-foreground rounded-lg">
-                  No Hub Assigned
+        {/* ── Hub ─────────────────────────────────────────────────────── */}
+        <div className="space-y-2">
+          <Label className="text-xs font-bold uppercase tracking-wider text-slate-500 flex items-center gap-1.5">
+            <Building2 className="h-3 w-3" /> Hub
+          </Label>
+          <Select
+            value={rider.hub_id || "none"}
+            onValueChange={(v) => setRider((p) => ({ ...p, hub_id: v === "none" ? "" : v }))}
+          >
+            <SelectTrigger className="h-10 rounded-xl border-slate-200 bg-white">
+              <SelectValue placeholder="Assign to hub..." />
+            </SelectTrigger>
+            <SelectContent className="rounded-xl">
+              <SelectItem value="none" className="italic text-muted-foreground rounded-lg">
+                No Hub Assigned
+              </SelectItem>
+              {hubs.map((h) => (
+                <SelectItem key={h.id} value={h.id} className="rounded-lg">
+                  {h.name}
                 </SelectItem>
-                {hubs.map((h) => (
-                  <SelectItem key={h.id} value={h.id} className="rounded-lg">
-                    {h.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-        )}
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
 
         {/* ── UpGrid Driver ID ─────────────────────────────────────────── */}
         <div className="space-y-2">
