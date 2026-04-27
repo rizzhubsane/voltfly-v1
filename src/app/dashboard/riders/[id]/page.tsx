@@ -60,6 +60,7 @@ import {
   RefreshCw,
   LogOut,
   Plus,
+  UserCheck,
   Calendar,
   ShieldCheck,
   AlertTriangle,
@@ -765,6 +766,29 @@ export default function RiderDetailPage() {
     onError: (err: Error) => toast.error(err.message),
   });
 
+  const unexitMutation = useMutation({
+    mutationFn: async () => {
+      const res = await adminFetch(`/api/admin/riders/${riderId}/unexit`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Un-exit failed");
+      return data as { success: boolean; status: string };
+    },
+    onSuccess: (data) => {
+      toast.success(`Rider un-exited successfully. Status is now ${data.status}.`);
+      queryClient.setQueryData(["rider-full", riderId], (old: RiderFullData | undefined) =>
+        old
+          ? { ...old, rider: { ...old.rider, status: data.status } }
+          : old
+      );
+      queryClient.invalidateQueries({ queryKey: ["rider-full", riderId] });
+      queryClient.invalidateQueries({ queryKey: ["riders"] });
+    },
+    onError: (err: Error) => toast.error(err.message),
+  });
+
   // ── Hubs (for edit hub selector) ─────────────────────────────────────────
   const { data: allHubs = [] } = useQuery<{ id: string; name: string }[]>({
     queryKey: ["hubs"],
@@ -1013,6 +1037,21 @@ export default function RiderDetailPage() {
                 setLeaveAction("end"); setLeaveDialogOpen(true);
               }}>
                 <RefreshCw className="h-3.5 w-3.5" /> Return from Leave
+              </Button>
+            )}
+            {rider.status === "exited" && (
+              <Button
+                variant="outline"
+                className="gap-1.5 border-blue-300 text-blue-700 hover:bg-blue-50"
+                onClick={() => {
+                  if (window.confirm("Are you sure you want to un-exit this rider? Their status will be restored based on their wallet balance.")) {
+                    unexitMutation.mutate();
+                  }
+                }}
+                disabled={unexitMutation.isPending}
+              >
+                {unexitMutation.isPending ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <UserCheck className="h-3.5 w-3.5" />}
+                Un-Exit Rider
               </Button>
             )}
             {rider.status !== "exited" && (

@@ -213,6 +213,7 @@ export default function VehiclesPage() {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const idB = ((b as any).vehicle_id || "").toString().toUpperCase();
       return idA.localeCompare(idB, undefined, { numeric: true, sensitivity: 'base' });
+    });
   }, [vehicles, search, hubFilter, statusFilter]);
 
   // ── Stats ────────────────────────────────────────────────────────────────
