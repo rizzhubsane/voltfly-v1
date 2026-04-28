@@ -786,51 +786,42 @@ export type HandoverChecklist = Database['public']['Tables']['vehicle_handover_c
 
 // Checklist item keys (boolean fields only)
 export const HANDOVER_ITEMS = [
-  { key: 'charger',   label: 'Charger' },
   { key: 'key',       label: 'Key' },
   { key: 'mirrors',   label: 'Mirrors' },
   { key: 'foot_mat',  label: 'Foot Mat' },
-  { key: 'helmet',    label: 'Helmet' },
   { key: 'lights',    label: 'Lights' },
   { key: 'horn',      label: 'Horn' },
   { key: 'indicators',label: 'Indicators' },
   { key: 'tyres',     label: 'Tyres' },
-  { key: 'tools_kit', label: 'Tools Kit' },
 ] as const;
 
 export type HandoverItemKey = typeof HANDOVER_ITEMS[number]['key'];
 
 export interface HandoverFormState {
-  charger: boolean;
   battery: boolean;
   key: boolean;
   mirrors: boolean;
   foot_mat: boolean;
   odometer_reading: string;
   motor_number: string;
-  helmet: boolean;
   lights: boolean;
   horn: boolean;
   indicators: boolean;
   tyres: boolean;
-  tools_kit: boolean;
   notes: string;
 }
 
 export const DEFAULT_HANDOVER_FORM: HandoverFormState = {
-  charger: false,
   battery: false,
   key: false,
   mirrors: false,
   foot_mat: false,
   odometer_reading: '',
   motor_number: '',
-  helmet: false,
   lights: false,
   horn: false,
   indicators: false,
   tyres: false,
-  tools_kit: false,
   notes: '',
 };
 

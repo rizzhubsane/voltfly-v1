@@ -248,8 +248,8 @@ function InfoRow({ label, value }: { label: string; value: string | null | undef
 // ─── Handover Form Component ──────────────────────────────────────────────────
 
 const HANDOVER_BOOL_KEYS: (keyof HandoverFormState)[] = [
-  "charger", "battery", "key", "mirrors", "foot_mat",
-  "helmet", "lights", "horn", "indicators", "tyres", "tools_kit",
+  "battery", "key", "mirrors", "foot_mat",
+  "lights", "horn", "indicators", "tyres",
 ];
 
 function HandoverChecklistForm({
