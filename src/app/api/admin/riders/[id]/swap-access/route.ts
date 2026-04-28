@@ -15,7 +15,7 @@ export async function POST(
   context: { params: { id: string } }
 ) {
   try {
-    const auth = await verifyAdmin(request);
+    const auth = await verifyAdmin(request, "super_admin");
     if (auth.error) return auth.error;
 
     if (!supabaseAdmin) {

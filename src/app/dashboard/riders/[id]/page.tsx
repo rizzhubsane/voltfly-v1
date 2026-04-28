@@ -1008,7 +1008,7 @@ export default function RiderDetailPage() {
 
           {/* Action buttons */}
           <div className="flex items-center gap-2 flex-wrap">
-            {rider.status === "active" && (
+            {isSuperAdmin && rider.status === "active" && (
               <Button variant="outline" className="gap-1.5 border-orange-300 text-orange-700 hover:bg-orange-50" onClick={() => {
                 setSwapActionType("block");
                 setSwapActionOpen(true);
@@ -1016,7 +1016,7 @@ export default function RiderDetailPage() {
                 <Ban className="h-3.5 w-3.5" /> Block Swap
               </Button>
             )}
-            {rider.status === "suspended" && (
+            {isSuperAdmin && rider.status === "suspended" && (
               <Button variant="outline" className="gap-1.5 border-emerald-300 text-emerald-700 hover:bg-emerald-50" onClick={() => {
                 setSwapActionType("unblock");
                 setSwapActionOpen(true);
