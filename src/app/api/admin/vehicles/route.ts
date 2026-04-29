@@ -245,18 +245,46 @@ export async function POST(request: Request) {
         if (clErr) throw clErr;
       }
 
+      const adminName = auth.admin.name || auth.admin.email || "Admin";
+
       if (pairingDriverId && vehicleData.assigned_rider_id) {
+        // Fetch existing notes to prevent overwrite
+        const { data: riderData } = await supabaseAdmin
+          .from("riders")
+          .select("admin_notes")
+          .eq("id", vehicleData.assigned_rider_id as string)
+          .single();
+        
+        const existingNotes = riderData?.admin_notes ? `${riderData.admin_notes}\n` : "";
+        const auditStr = `Vehicle assigned: ${normalizeVfel(data.vehicle_id)} (Logged by: ${adminName})`;
+
         const { error: riderErr } = await supabaseAdmin
           .from("riders")
-          .update({ driver_id: pairingDriverId })
+          .update({ 
+            driver_id: pairingDriverId,
+            admin_notes: `${existingNotes}${auditStr}`
+          })
           .eq("id", vehicleData.assigned_rider_id as string);
         if (riderErr) throw riderErr;
       }
 
       if (riderToClearDriver) {
+        // Fetch existing notes to prevent overwrite
+        const { data: riderData } = await supabaseAdmin
+          .from("riders")
+          .select("admin_notes")
+          .eq("id", riderToClearDriver)
+          .single();
+
+        const existingNotes = riderData?.admin_notes ? `${riderData.admin_notes}\n` : "";
+        const auditStr = `Vehicle unassigned (Logged by: ${adminName})`;
+
         const { error: clearErr } = await supabaseAdmin
           .from("riders")
-          .update({ driver_id: null })
+          .update({ 
+            driver_id: null,
+            admin_notes: `${existingNotes}${auditStr}`
+          })
           .eq("id", riderToClearDriver);
         if (clearErr) throw clearErr;
       }

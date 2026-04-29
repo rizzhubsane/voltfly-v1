@@ -6,7 +6,7 @@ import { getErrorMessage, logPostgrestError } from "@/lib/errorMessage";
 export const dynamic = "force-dynamic";
 
 const RIDER_ALLOWED_FIELDS = [
-  "name", "phone_1", "phone_2", "hub_id", "driver_id", "status", "created_at", "gig_company",
+  "name", "phone_1", "phone_2", "hub_id", "driver_id", "status", "created_at", "gig_company", "admin_notes",
   // PIN auth management fields — cleared by admin to reset a rider's access code
   "access_code_hash", "failed_attempts", "locked_until",
 ] as const;
@@ -30,7 +30,7 @@ const KYC_ALLOWED_FIELDS = [
  */
 export async function PATCH(
   request: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const auth = await verifyAdmin(request);
@@ -40,7 +40,7 @@ export async function PATCH(
       return NextResponse.json({ error: "Missing admin config" }, { status: 500 });
     }
 
-    const riderId = params.id;
+    const { id: riderId } = await params;
     if (!riderId) {
       return NextResponse.json({ error: "Rider ID is required" }, { status: 400 });
     }

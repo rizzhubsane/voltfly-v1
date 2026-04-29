@@ -1,10 +1,11 @@
 "use client";
 import { adminFetch } from "@/lib/adminFetch";
+import { ExpandableNote } from "@/components/shared/ExpandableNote";
 
 
 import { useState, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { format, addDays, differenceInCalendarDays, isAfter, isBefore, startOfDay, startOfWeek, startOfMonth } from "date-fns";
+import { format, addDays, startOfDay, startOfWeek, startOfMonth } from "date-fns";
 import type { DateRange } from "react-day-picker";
 import { toast } from "sonner";
 import { 
@@ -35,7 +36,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Sheet, SheetTrigger } from "@/components/ui/sheet";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Calendar } from "@/components/ui/calendar";
+// import { Calendar } from "@/components/ui/calendar";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { LogCashPaymentDrawer } from "@/components/payments/LogCashPaymentDrawer";
 import { ProcessRefundDrawer } from "@/components/payments/ProcessRefundDrawer";
@@ -96,10 +97,12 @@ const STATUS_CONFIG: Record<string, { label: string; class: string }> = {
   failed: { label: "Failed", class: "bg-slate-200 text-slate-700" },
 };
 
-const METHOD_CONFIG: Record<string, { label: string; class: string }> = {
-  upi: { label: "UPI", class: "bg-blue-50 text-blue-700 border-blue-100" },
-  cash: { label: "Cash", class: "bg-emerald-50 text-emerald-700 border-emerald-100" },
-  mandate: { label: "Mandate", class: "bg-purple-50 text-purple-700 border-purple-100" },
+const METHOD_CONFIG: Record<string, { label: string; icon: string; class: string }> = {
+  cash:     { label: "Cash",     icon: "💵", class: "bg-emerald-50 text-emerald-700 border-emerald-200" },
+  upi:      { label: "UPI",      icon: "📲", class: "bg-blue-50 text-blue-700 border-blue-200" },
+  razorpay: { label: "Razorpay", icon: "💳", class: "bg-purple-50 text-purple-700 border-purple-200" },
+  online:   { label: "Online",   icon: "🌐", class: "bg-indigo-50 text-indigo-700 border-indigo-200" },
+  mandate:  { label: "Mandate",  icon: "📄", class: "bg-slate-50 text-slate-700 border-slate-200" },
 };
 
 const PLAN_LABEL: Record<string, { label: string; amount?: number; cycleDays?: number }> = {
@@ -330,7 +333,7 @@ export default function PaymentsPage() {
 
   // ── Handlers ─────────────────────────────────────────────────────────────
   const exportPayments = () => {
-    const headers = ["Rider", "Date", "Plan", "Amount", "Method", "Status"];
+    const headers = ["Rider", "Date", "Plan", "Amount", "Method", "Notes", "Status"];
     const csvContent = [
       headers.join(","),
       ...filteredPayments.map(p => [
@@ -339,6 +342,7 @@ export default function PaymentsPage() {
         `"${String(p.plan_type ?? "").replaceAll('"', '""')}"`,
         `"${String(p.amount)}"`,
         `"${String(p.method ?? "").replaceAll('"', '""')}"`,
+        `"${(p.notes ?? "").replaceAll('"', '""')}"`,
         `"${String(p.status ?? "").replaceAll('"', '""')}"`
       ].join(","))
     ].join("\n");
@@ -409,7 +413,7 @@ export default function PaymentsPage() {
                   <span className="font-serif text-xl font-bold">₹</span>
                 </div>
                 <div>
-                  <p className="text-sm font-medium text-slate-500">Today's Collection</p>
+                  <p className="text-sm font-medium text-slate-500">Today&apos;s Collection</p>
                   <p className="text-2xl font-bold text-[#0D2D6B]">₹{paymentStats.today.toLocaleString()}</p>
                 </div>
               </CardContent>
@@ -567,6 +571,7 @@ export default function PaymentsPage() {
                   <TableHead>Plan</TableHead>
                   <TableHead>Amount</TableHead>
                   <TableHead>Method</TableHead>
+                  <TableHead>Notes</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead className="w-[50px]"></TableHead>
                 </TableRow>
@@ -574,7 +579,7 @@ export default function PaymentsPage() {
               <TableBody>
                 {loadingPayments ? (
                   <TableRow>
-                    <TableCell colSpan={7} className="h-32 text-center">
+                    <TableCell colSpan={8} className="h-32 text-center">
                       <div className="flex flex-col items-center gap-2 text-muted-foreground">
                         <Loader2 className="h-6 w-6 animate-spin" />
                         Loading payments...
@@ -583,7 +588,7 @@ export default function PaymentsPage() {
                   </TableRow>
                 ) : filteredPayments.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={7} className="h-32 text-center text-muted-foreground">
+                    <TableCell colSpan={8} className="h-32 text-center text-muted-foreground">
                       No payments found matches your criteria.
                     </TableCell>
                   </TableRow>
@@ -613,16 +618,19 @@ export default function PaymentsPage() {
                       <TableCell className="font-medium">₹{p.amount.toLocaleString()}</TableCell>
                       <TableCell>
                         <span
-                          className={`inline-flex items-center px-2 py-0.5 rounded border text-[10px] font-bold ${
+                          className={`inline-flex items-center gap-1 px-2 py-0.5 rounded border text-[10px] font-bold ${
                             p.method
                               ? (METHOD_CONFIG[p.method]?.class ?? "bg-slate-50 text-slate-700 border-slate-200")
                               : "bg-slate-50 text-slate-700 border-slate-200"
                           }`}
                         >
                           {p.method
-                            ? (METHOD_CONFIG[p.method]?.label || p.method.toUpperCase())
+                            ? `${METHOD_CONFIG[p.method]?.icon ?? ""} ${METHOD_CONFIG[p.method]?.label || p.method.toUpperCase()}`
                             : "—"}
                         </span>
+                      </TableCell>
+                      <TableCell className="max-w-[200px]">
+                        <ExpandableNote note={p.notes} />
                       </TableCell>
                       <TableCell>
                         <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold ${STATUS_CONFIG[p.status]?.class || "bg-slate-100 text-slate-700"}`}>

@@ -74,7 +74,7 @@ export async function GET(request: Request) {
     if (depositsResult.error) console.error("[reports] security_deposits:", depositsResult.error.message);
 
     // Enrich riders with hub names
-    const riders = (ridersResult.data ?? []) as RiderRow[];
+    const riders = ((ridersResult.data ?? []) as unknown) as RiderRow[];
     const hubIds = Array.from(
       new Set(riders.map((r) => r.hub_id).filter((id): id is string => !!id))
     );

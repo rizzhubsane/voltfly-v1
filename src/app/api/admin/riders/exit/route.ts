@@ -91,7 +91,7 @@ export async function POST(request: Request) {
           horn:             returnChecklist.horn,
           indicators:       returnChecklist.indicators,
           tyres:            returnChecklist.tyres,
-          notes:            returnChecklist.notes            || null,
+          notes:            returnChecklist.notes ? `${returnChecklist.notes} (Exited by: ${auth.admin.name || auth.admin.email || "Admin"})` : `Exited by: ${auth.admin.name || auth.admin.email || "Admin"}`,
           recorded_by:      adminId                         || null,
         });
 
@@ -168,7 +168,11 @@ export async function POST(request: Request) {
     // ── Step 4: Mark rider as exited and clear Upgrid driver id (fleet pairing) ─
     const { error: riderErr } = await supabaseAdmin
       .from("riders")
-      .update({ status: "exited", driver_id: null })
+      .update({ 
+        status: "exited", 
+        driver_id: null,
+        admin_notes: `Exited on ${new Date().toISOString()} by ${auth.admin.name || auth.admin.email || "Admin"}.`
+      })
       .eq("id", riderId);
 
     if (riderErr) {

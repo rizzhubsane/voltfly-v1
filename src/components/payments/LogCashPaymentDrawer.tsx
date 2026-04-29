@@ -41,48 +41,57 @@ import { PRICING } from "@/lib/pricingConstants";
 const formSchema = z.object({
   riderId: z.string().min(1, "Rider is required"),
   amount: z.number().min(1, "Amount must be greater than 0"),
-  planType: z.string().min(1, "Plan type is required"),
-  cycleDays: z.number().int().min(1).optional(),
+  planType: z.string().min(1, "Category is required"),
+  method: z.string().min(1, "Payment method is required"),
   paymentDate: z.date(),
   notes: z.string().optional(),
 });
 
 type FormValues = z.infer<typeof formSchema>;
 
-const PLANS = [
-  { id: "daily",            label: `Daily (₹${PRICING.DAILY_RATE})`,           amount: PRICING.DAILY_RATE,     days: 1 },
-  { id: "weekly",           label: `Weekly (₹${PRICING.WEEKLY_RATE})`,         amount: PRICING.WEEKLY_RATE,    days: 7 },
-  { id: "monthly",          label: `Monthly (₹${PRICING.MONTHLY_RATE})`,       amount: PRICING.MONTHLY_RATE,   days: 30 },
-  { id: "onboarding_fee",   label: `Onboarding Fee (₹${PRICING.ONBOARDING_FEES})`, amount: PRICING.ONBOARDING_FEES, days: 0 },
-  { id: "service",          label: "Spare Parts / Service",                    amount: 0,                      days: 0 },
-  { id: "security_deposit", label: "Security Deposit",                         amount: 0,                      days: 0 },
-  { id: "custom",           label: "Custom (enter days)",                      amount: 0,                      days: 0 },
+const CATEGORIES = [
+  { id: "daily",            label: "Daily Rent",                       defaultAmount: 0 },
+  { id: "weekly",           label: "Weekly Rent",                      defaultAmount: 0 },
+  { id: "monthly",          label: "Monthly Rent",                     defaultAmount: 0 },
+  { id: "wallet_topup",     label: "Wallet Top-up (General)",          defaultAmount: 0 },
+  { id: "security_deposit", label: "Security Deposit",                 defaultAmount: 0 },
+  { id: "service",          label: "Spare Parts / Service",            defaultAmount: 0 },
+  { id: "onboarding_fee",   label: "Onboarding Fee",                   defaultAmount: PRICING.ONBOARDING_FEES },
+];
+
+const PAYMENT_METHODS = [
+  { id: "cash",      label: "Cash",             icon: "💵", color: "text-emerald-700 bg-emerald-50 border-emerald-200" },
+  { id: "upi",       label: "UPI",              icon: "📲", color: "text-blue-700 bg-blue-50 border-blue-200" },
+  { id: "razorpay",  label: "Razorpay (Online)", icon: "💳", color: "text-purple-700 bg-purple-50 border-purple-200" },
 ];
 
 interface LogCashPaymentDrawerProps {
   adminId: string;
   onSuccess: () => void;
+  riderId?: string;
+  riderName?: string;
 }
 
-export function LogCashPaymentDrawer({ adminId, onSuccess }: LogCashPaymentDrawerProps) {
+export function LogCashPaymentDrawer({ adminId, onSuccess, riderId, riderName }: LogCashPaymentDrawerProps) {
+  const isLockedToRider = Boolean(riderId); // true when opened from a rider profile
   const [riderSearch, setRiderSearch] = useState("");
   const [riders, setRiders] = useState<{ id: string; name: string; phone_1: string }[]>([]);
   const [isSearching, setIsSearching] = useState(false);
-  const [selectedRider, setSelectedRider] = useState<{ id: string; name: string } | null>(null);
+  const [selectedRider, setSelectedRider] = useState<{ id: string; name: string } | null>(
+    riderId && riderName ? { id: riderId, name: riderName } : null
+  );
 
-  const [isCustom, setIsCustom] = useState(false);
   const [isOnboardingFee, setIsOnboardingFee] = useState(false);
-  const [customDaysInput, setCustomDaysInput] = useState("1");
 
   const queryClient = useQueryClient();
 
   const form = useForm<FormValues>({
     resolver: zodResolver(formSchema),
     defaultValues: {
-      riderId: "",
+      riderId: riderId || "",
       amount: 0,
       planType: "",
-      cycleDays: undefined,
+      method: "cash",
       paymentDate: new Date(),
       notes: "",
     },
@@ -119,28 +128,14 @@ export function LogCashPaymentDrawer({ adminId, onSuccess }: LogCashPaymentDrawe
     setRiderSearch("");
   };
 
-  // ── Plan Selection ────────────────────────────────────────────────────────
-  const handlePlanChange = (planId: string) => {
-    const plan = PLANS.find(p => p.id === planId);
-    const isCustomPlan = planId === "custom";
-    setIsCustom(isCustomPlan);
-    setIsOnboardingFee(planId === "onboarding_fee");
-    if (plan && plan.amount > 0) {
-      form.setValue("amount", plan.amount);
-      form.setValue("cycleDays", plan.days > 0 ? plan.days : undefined);
+  // ── Category Selection ────────────────────────────────────────────────────────
+  const handleCategoryChange = (categoryId: string) => {
+    const category = CATEGORIES.find(c => c.id === categoryId);
+    setIsOnboardingFee(categoryId === "onboarding_fee");
+    if (category && category.defaultAmount > 0) {
+      form.setValue("amount", category.defaultAmount);
     } else {
       form.setValue("amount", 0);
-      form.setValue("cycleDays", undefined);
-    }
-  };
-
-  // When custom days changes, recompute the amount
-  const handleCustomDaysChange = (val: string) => {
-    setCustomDaysInput(val);
-    const days = parseInt(val) || 0;
-    if (days >= 1) {
-      form.setValue("amount", days * PRICING.DAILY_RATE);
-      form.setValue("cycleDays", days);
     }
   };
 
@@ -165,14 +160,6 @@ export function LogCashPaymentDrawer({ adminId, onSuccess }: LogCashPaymentDrawe
         );
       }
 
-      // For custom plan, cycleDays comes from the explicit days input (not derived from amount)
-      let cycleDays: number | undefined = values.cycleDays;
-      if (values.planType === "custom" && !cycleDays) {
-        const parsedDays = parseInt(customDaysInput) || 0;
-        if (parsedDays < 1) throw new Error("Please enter a valid number of days for custom plan");
-        cycleDays = parsedDays;
-      }
-
       const res = await adminFetch("/api/admin/payments/cash", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -180,7 +167,7 @@ export function LogCashPaymentDrawer({ adminId, onSuccess }: LogCashPaymentDrawe
           riderId: values.riderId,
           amount: values.amount,
           planType: values.planType,
-          cycleDays,
+          method: values.method,
           paidAt: values.paymentDate.toISOString(),
           notes: values.notes,
           adminId: adminId,
@@ -200,9 +187,7 @@ export function LogCashPaymentDrawer({ adminId, onSuccess }: LogCashPaymentDrawe
       await queryClient.invalidateQueries({ queryKey: ["overdue-riders"] });
       form.reset();
       setSelectedRider(null);
-      setIsCustom(false);
       setIsOnboardingFee(false);
-      setCustomDaysInput("1");
       onSuccess();
     },
     onError: (error: unknown) => {
@@ -241,87 +226,89 @@ export function LogCashPaymentDrawer({ adminId, onSuccess }: LogCashPaymentDrawe
             </div>
           )}
 
-          {/* Rider Selection */}
-          <div className="space-y-2">
-            <FormLabel className="text-xs font-bold uppercase tracking-wider text-slate-500">Rider *</FormLabel>
-            {selectedRider ? (
-              <div className="flex items-center justify-between p-3 rounded-xl border bg-slate-50 ring-1 ring-slate-100">
-                <div className="flex items-center gap-3">
-                  <div className="h-9 w-9 rounded-full bg-primary/10 flex items-center justify-center border border-primary/20">
-                    <User className="h-4 w-4 text-primary" />
+          {/* Rider Selection — hidden when drawer is locked to a specific rider from their profile */}
+          {!isLockedToRider && (
+            <div className="space-y-2">
+              <FormLabel className="text-xs font-bold uppercase tracking-wider text-slate-500">Rider *</FormLabel>
+              {selectedRider ? (
+                <div className="flex items-center justify-between p-3 rounded-xl border bg-slate-50 ring-1 ring-slate-100">
+                  <div className="flex items-center gap-3">
+                    <div className="h-9 w-9 rounded-full bg-primary/10 flex items-center justify-center border border-primary/20">
+                      <User className="h-4 w-4 text-primary" />
+                    </div>
+                    <div className="flex flex-col">
+                      <span className="font-semibold text-sm text-[#0D2D6B]">{selectedRider.name}</span>
+                      <span className="text-[10px] text-muted-foreground uppercase font-medium">Selected Rider</span>
+                    </div>
                   </div>
-                  <div className="flex flex-col">
-                    <span className="font-semibold text-sm text-[#0D2D6B]">{selectedRider.name}</span>
-                    <span className="text-[10px] text-muted-foreground uppercase font-medium">Selected Rider</span>
-                  </div>
+                  <Button 
+                    variant="ghost" 
+                    size="sm" 
+                    onClick={() => {
+                      setSelectedRider(null);
+                      form.setValue("riderId", "");
+                    }}
+                    className="h-8 text-[11px] font-bold uppercase text-primary hover:text-primary hover:bg-primary/5"
+                  >
+                    Change
+                  </Button>
                 </div>
-                <Button 
-                  variant="ghost" 
-                  size="sm" 
-                  onClick={() => {
-                    setSelectedRider(null);
-                    form.setValue("riderId", "");
-                  }}
-                  className="h-8 text-[11px] font-bold uppercase text-primary hover:text-primary hover:bg-primary/5"
-                >
-                  Change
-                </Button>
-              </div>
-            ) : (
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                <Input
-                  placeholder="Search by name or phone..."
-                  className="pl-9 h-10 rounded-xl"
-                  value={riderSearch}
-                  onChange={(e) => setRiderSearch(e.target.value)}
-                />
-                {isSearching && (
-                  <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 animate-spin text-muted-foreground" />
-                )}
-                {riders.length > 0 && (
-                  <div className="absolute top-full left-0 right-0 mt-2 bg-white border rounded-xl shadow-xl z-50 max-h-48 overflow-y-auto ring-1 ring-black/5 p-1 animate-in fade-in zoom-in-95 duration-150">
-                    {riders.map((r) => (
-                      <button
-                        key={r.id}
-                        type="button"
-                        className="w-full text-left px-3 py-2 hover:bg-slate-50 rounded-lg transition-colors flex flex-col"
-                        onClick={() => handleSelectRider(r)}
-                      >
-                        <div className="font-semibold text-sm text-[#0D2D6B]">{r.name}</div>
-                        <div className="text-[10px] text-muted-foreground font-medium">{r.phone_1}</div>
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
-            {form.formState.errors.riderId && (
-              <p className="text-xs font-medium text-destructive">{form.formState.errors.riderId.message}</p>
-            )}
-          </div>
+              ) : (
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                  <Input
+                    placeholder="Search by name or phone..."
+                    className="pl-9 h-10 rounded-xl"
+                    value={riderSearch}
+                    onChange={(e) => setRiderSearch(e.target.value)}
+                  />
+                  {isSearching && (
+                    <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 animate-spin text-muted-foreground" />
+                  )}
+                  {riders.length > 0 && (
+                    <div className="absolute top-full left-0 right-0 mt-2 bg-white border rounded-xl shadow-xl z-50 max-h-48 overflow-y-auto ring-1 ring-black/5 p-1 animate-in fade-in zoom-in-95 duration-150">
+                      {riders.map((r) => (
+                        <button
+                          key={r.id}
+                          type="button"
+                          className="w-full text-left px-3 py-2 hover:bg-slate-50 rounded-lg transition-colors flex flex-col"
+                          onClick={() => handleSelectRider(r)}
+                        >
+                          <div className="font-semibold text-sm text-[#0D2D6B]">{r.name}</div>
+                          <div className="text-[10px] text-muted-foreground font-medium">{r.phone_1}</div>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+              {form.formState.errors.riderId && (
+                <p className="text-xs font-medium text-destructive">{form.formState.errors.riderId.message}</p>
+              )}
+            </div>
+          )}
 
-          {/* Plan Type */}
+          {/* Payment Category */}
           <FormField
             control={form.control}
             name="planType"
             render={({ field }) => (
               <FormItem className="space-y-2">
-                <FormLabel className="text-xs font-bold uppercase tracking-wider text-slate-500">Plan Type *</FormLabel>
+                <FormLabel className="text-xs font-bold uppercase tracking-wider text-slate-500">Payment Category *</FormLabel>
                 <div className="relative">
                   <LayoutList className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400 z-10" />
                   <Select onValueChange={(val: string) => {
                     field.onChange(val);
-                    handlePlanChange(val);
+                    handleCategoryChange(val);
                   }} defaultValue={field.value}>
                     <FormControl>
                       <SelectTrigger className="pl-9 h-10 rounded-xl border-slate-200">
-                        <SelectValue placeholder="Select a payment plan..." />
+                        <SelectValue placeholder="Select a payment category..." />
                       </SelectTrigger>
                     </FormControl>
                     <SelectContent className="rounded-xl">
-                      {PLANS.map((p) => (
-                        <SelectItem key={p.id} value={p.id} className="rounded-lg">{p.label}</SelectItem>
+                      {CATEGORIES.map((c) => (
+                        <SelectItem key={c.id} value={c.id} className="rounded-lg">{c.label}</SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
@@ -338,34 +325,10 @@ export function LogCashPaymentDrawer({ adminId, onSuccess }: LogCashPaymentDrawe
               <div>
                 <p className="text-xs font-semibold text-amber-800">Onboarding Fee only — ₹{PRICING.ONBOARDING_FEES}</p>
                 <p className="text-[11px] text-amber-700 mt-0.5">
-                  This records <strong>only the ₹{PRICING.ONBOARDING_FEES} handling fee</strong>. If this is a new rider's first payment (₹{PRICING.FULL_ONBOARDING.toLocaleString("en-IN")} bundle), use the{" "}
-                  <strong>Offline Onboard</strong> flow instead — it automatically splits the deposit, fee, and rental and activates the rider.
+                  This records <strong>only the ₹{PRICING.ONBOARDING_FEES} handling fee</strong>. If this is a new rider&apos;s first payment (₹{PRICING.FULL_ONBOARDING.toLocaleString("en-IN")} bundle), use the{" "}
+                  <strong>Offline Onboard</strong> flow instead.
                 </p>
               </div>
-            </div>
-          )}
-
-          {/* Custom Days Input — only shown for the 'custom' plan */}
-          {isCustom && (
-            <div className="space-y-2">
-              <FormLabel className="text-xs font-bold uppercase tracking-wider text-slate-500">
-                Number of Days *
-              </FormLabel>
-              <div className="flex items-center gap-3">
-                <Input
-                  type="number"
-                  min="1"
-                  max="365"
-                  placeholder="e.g. 3"
-                  value={customDaysInput}
-                  onChange={(e) => handleCustomDaysChange(e.target.value)}
-                  className="h-10 rounded-xl border-slate-200 w-28 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                />
-                <span className="text-sm text-muted-foreground">
-                  days × ₹{PRICING.DAILY_RATE} = <strong>₹{(parseInt(customDaysInput) || 0) * PRICING.DAILY_RATE}</strong>
-                </span>
-              </div>
-              <p className="text-[10px] text-muted-foreground">Amount is auto-computed. You may override it below if needed.</p>
             </div>
           )}
 
@@ -437,6 +400,41 @@ export function LogCashPaymentDrawer({ adminId, onSuccess }: LogCashPaymentDrawe
             />
           </div>
 
+          {/* Payment Method */}
+          <FormField
+            control={form.control}
+            name="method"
+            render={({ field }) => (
+              <FormItem className="space-y-2">
+                <FormLabel className="text-xs font-bold uppercase tracking-wider text-slate-500">Payment Method *</FormLabel>
+                <div className="grid grid-cols-3 gap-2">
+                  {PAYMENT_METHODS.map((m) => {
+                    const isSelected = field.value === m.id;
+                    return (
+                      <button
+                        key={m.id}
+                        type="button"
+                        onClick={() => field.onChange(m.id)}
+                        className={`flex flex-col items-center gap-1 py-3 px-2 rounded-xl border-2 text-center transition-all ${
+                          isSelected
+                            ? `border-[#0D2D6B] bg-[#0D2D6B]/5 shadow-sm`
+                            : `border-slate-200 hover:border-slate-300 hover:bg-slate-50`
+                        }`}
+                      >
+                        <span className="text-lg">{m.icon}</span>
+                        <span className={`text-[11px] font-semibold leading-tight ${
+                          isSelected ? "text-[#0D2D6B]" : "text-slate-600"
+                        }`}>{m.label}</span>
+                        {isSelected && <span className="w-1.5 h-1.5 rounded-full bg-[#0D2D6B] mt-0.5" />}
+                      </button>
+                    );
+                  })}
+                </div>
+                <FormMessage className="text-xs" />
+              </FormItem>
+            )}
+          />
+
           {/* Notes */}
           <FormField
             control={form.control}
@@ -473,7 +471,7 @@ export function LogCashPaymentDrawer({ adminId, onSuccess }: LogCashPaymentDrawe
               ) : looksLikeOnboarding ? (
                 "Use Offline Onboard Instead →"
               ) : (
-                "Log Cash Payment"
+                "Log Payment"
               )}
             </Button>
           </div>

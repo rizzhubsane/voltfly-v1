@@ -1,5 +1,6 @@
 "use client";
 import { adminFetch } from "@/lib/adminFetch";
+import { ExpandableNote } from "@/components/shared/ExpandableNote";
 
 import { useState, useMemo, useCallback } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -241,6 +242,8 @@ function exportCSV(riders: RiderWithHub[]) {
     "Vehicle ID",
     "Driver ID",
     "Date Joined",
+    "Added By",
+    "Admin Notes",
   ];
   const rows = riders.map((r) => [
     r.name,
@@ -250,6 +253,8 @@ function exportCSV(riders: RiderWithHub[]) {
     r.vehicle_id || "—",
     r.driver_id || "—",
     r.created_at ? format(new Date(r.created_at), "yyyy-MM-dd") : "—",
+    (r as any).added_by || "—",
+    (r as any).admin_notes || "—",
   ]);
 
   const csv = [headers, ...rows]
@@ -546,6 +551,7 @@ export default function RidersPage() {
               <TableHead>Driver ID</TableHead>
               <TableHead>Swap</TableHead>
               <TableHead>Joined</TableHead>
+              <TableHead>Admin Info</TableHead>
               <TableHead className="w-[80px]" />
             </TableRow>
           </TableHeader>
@@ -628,11 +634,25 @@ export default function RidersPage() {
                     })()}
                   </TableCell>
 
-                  {/* Vehicle ID — inline from API */}
+                  {/* Vehicle ID — clickable to assign/view */}
                   <TableCell>
-                    <span className="font-mono text-xs font-medium text-slate-700">
-                      {rider.vehicle_id || <span className="text-muted-foreground">—</span>}
-                    </span>
+                    {rider.vehicle_id ? (
+                      <Link
+                        href={`/dashboard/riders/${rider.id}?tab=vehicle`}
+                        className="font-mono text-xs font-semibold text-[#0D2D6B] hover:underline underline-offset-2"
+                        title="View vehicle details"
+                      >
+                        {rider.vehicle_id}
+                      </Link>
+                    ) : (
+                      <Link
+                        href={`/dashboard/riders/${rider.id}?assign=vehicle`}
+                        className="text-xs text-blue-500 hover:text-blue-700 hover:underline underline-offset-2 font-medium transition-colors"
+                        title="Click to assign a vehicle"
+                      >
+                        + Assign
+                      </Link>
+                    )}
                   </TableCell>
 
                   {/* Driver ID (Upgrid) — inline from API */}
@@ -684,6 +704,19 @@ export default function RidersPage() {
                     {rider.created_at
                       ? format(new Date(rider.created_at), "dd MMM yyyy")
                       : "—"}
+                  </TableCell>
+
+                  {/* Admin Info */}
+                  <TableCell className="max-w-[160px]">
+                    <div className="space-y-1">
+                      {(rider as any).added_by && (
+                        <div className="flex items-center gap-1.5 text-[10px] font-medium text-blue-700 bg-blue-50 border border-blue-100 rounded-full px-2 py-0.5 w-fit max-w-full truncate" title={`Added by: ${(rider as any).added_by}`}>
+                          <span>👤</span>
+                          <span className="truncate">{(rider as any).added_by}</span>
+                        </div>
+                      )}
+                      <ExpandableNote note={(rider as any).admin_notes} />
+                    </div>
                   </TableCell>
 
                   {/* Actions */}

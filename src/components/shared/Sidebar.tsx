@@ -9,7 +9,6 @@ import {
   Users,
   Truck,
   CreditCard,
-  Shield,
   Wrench,
   Bell,
   BarChart3,

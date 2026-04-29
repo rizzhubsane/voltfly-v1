@@ -28,7 +28,7 @@ export async function PATCH(
     // 1. Fetch current rider to check wallet balance and status
     const { data: rider, error: fetchErr } = await supabaseAdmin
       .from("riders")
-      .select("status, wallet_balance")
+      .select("status, wallet_balance, admin_notes")
       .eq("id", id)
       .maybeSingle();
 
@@ -42,11 +42,17 @@ export async function PATCH(
 
     // 2. Determine new status
     const newStatus = (rider.wallet_balance ?? 0) >= 0 ? "active" : "suspended";
+    const adminName = auth.admin.name || auth.admin.email || "Admin";
+    const existingNotes = rider.admin_notes ? `${rider.admin_notes}\n` : "";
+    const auditStr = `Rider un-exited (status: ${newStatus}) (Logged by: ${adminName})`;
 
     // 3. Update rider
     const { error: updateErr } = await supabaseAdmin
       .from("riders")
-      .update({ status: newStatus })
+      .update({ 
+        status: newStatus,
+        admin_notes: `${existingNotes}${auditStr}`
+      })
       .eq("id", id);
 
     if (updateErr) {

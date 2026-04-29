@@ -61,7 +61,7 @@ export async function GET(
         .limit(50),
       supabaseAdmin
         .from("riders")
-        .select("id, driver_id, hubs(name)")
+        .select("id, driver_id, hubs(name), added_by, admin_notes")
         .eq("id", riderId)
         .single(),
       supabaseAdmin
@@ -94,7 +94,7 @@ export async function GET(
 
     // Merge and sort by date descending
     const allPayments = [...paymentRows, ...depositRows].sort(
-      (a, b) => new Date(b.payment_date ?? b.created_at).getTime() - new Date(a.payment_date ?? a.created_at).getTime()
+      (a, b) => new Date(b.payment_date ?? b.created_at ?? "1970-01-01").getTime() - new Date(a.payment_date ?? a.created_at ?? "1970-01-01").getTime()
     );
 
     return NextResponse.json({

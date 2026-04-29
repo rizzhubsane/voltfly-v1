@@ -1,9 +1,11 @@
 "use client";
 import { adminFetch } from "@/lib/adminFetch";
-
+import { LogCashPaymentDrawer } from "@/components/payments/LogCashPaymentDrawer";
+import { ExpandableNote } from "@/components/shared/ExpandableNote";
+import { Sheet } from "@/components/ui/sheet";
 
 import { useState, useMemo, useEffect, useRef, useCallback } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
 import type {
@@ -84,16 +86,7 @@ import {
 
 type TabKey = "profile" | "vehicle" | "payments" | "service";
 
-// Wallet transaction type (from wallet_transactions table)
-type WalletTx = {
-  id: string;
-  amount: number;
-  type: "daily_deduction" | "rental_credit" | "admin_adjustment" | "onboarding" | "service_payment";
-  balance_before: number;
-  balance_after: number;
-  notes: string | null;
-  created_at: string;
-};
+
 
 const TABS: { key: TabKey; label: string; icon: React.ElementType }[] = [
   { key: "profile", label: "Profile & KYC", icon: UserCircle },
@@ -195,6 +188,13 @@ async function fetchRiderFull(riderId: string): Promise<RiderFullData> {
   if (rider) {
     if (activity.rider_info?.driver_id !== undefined) {
       rider.driver_id = activity.rider_info.driver_id;
+    }
+    // Inject admin tracking fields from the service-role fetch
+    if (activity.rider_info?.added_by !== undefined) {
+      rider.added_by = activity.rider_info.added_by;
+    }
+    if (activity.rider_info?.admin_notes !== undefined) {
+      rider.admin_notes = activity.rider_info.admin_notes;
     }
     
     // Explicitly fetch the hub name if we have a hub_id, ensuring no nulls from RPC
@@ -372,10 +372,11 @@ export default function RiderDetailPage() {
   const [editRider, setEditRider] = useState<{
     name: string; phone_1: string; phone_2: string;
     hub_id: string; driver_id: string; status: string; created_at: string; gig_company: string;
+    admin_notes: string;
   } | null>(null);
   const [editKyc, setEditKyc] = useState<EditKycForm | null>(null);
   const editKycBaselineRef = useRef<EditKycForm | null>(null);
-  const [paymentDialogOpen, setPaymentDialogOpen] = useState(false);
+  const [paymentDrawerOpen, setPaymentDrawerOpen] = useState(false);
 
   // Leave system
   const [leaveDialogOpen, setLeaveDialogOpen]   = useState(false);
@@ -390,17 +391,22 @@ export default function RiderDetailPage() {
   const [upgridInput, setUpgridInput] = useState("");
   const [assignVehicleOpen, setAssignVehicleOpen] = useState(false);
   const [selectedVehicleId, setSelectedVehicleId] = useState("");
-  /** Free-typed Vehicle ID (e.g. VFEL1001); resolved to selectedVehicleId when it matches a row */
+  /** Combobox query — typed text that filters available vehicles */
   const [assignVehicleIdInput, setAssignVehicleIdInput] = useState("");
+  const [comboboxOpen, setComboboxOpen] = useState(false);
   const [assignStep, setAssignStep] = useState<1 | 2>(1);
   const [assignChecklist, setAssignChecklist] = useState<HandoverFormState>(DEFAULT_HANDOVER_FORM);
   const [returnChecklist, setReturnChecklist] = useState<HandoverFormState>(DEFAULT_HANDOVER_FORM);
 
-  // Cash payment form
-  const [cashAmount, setCashAmount] = useState("");
-  const [cashPlan, setCashPlan] = useState("daily");
-  const [cashDate, setCashDate] = useState(format(new Date(), "yyyy-MM-dd"));
-  const [cashNotes, setCashNotes] = useState("");
+  // Auto-open assign dialog via ?assign=vehicle query param
+  const searchParams = useSearchParams();
+  useEffect(() => {
+    if (searchParams?.get("assign") === "vehicle") {
+      setAssignVehicleOpen(true);
+    }
+  }, [searchParams]);
+
+
 
   // Service request form
   const [serviceDialogOpen, setServiceDialogOpen] = useState(false);
@@ -557,35 +563,7 @@ export default function RiderDetailPage() {
     onError: (err: Error) => toast.error(err.message),
   });
 
-  const logPaymentMutation = useMutation({
-    mutationFn: async () => {
-      const res = await adminFetch("/api/admin/payments/cash", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          riderId: riderId,
-          amount: parseFloat(cashAmount),
-          planType: cashPlan,
-          paidAt: cashDate,
-          notes: cashNotes || null,
-          adminId: adminId,
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Failed to log payment");
-      return data;
-    },
-    onSuccess: () => {
-      toast.success("Cash payment logged");
-      // Invalidate both the rider detail and the payments list page
-      queryClient.invalidateQueries({ queryKey: ["rider-full", riderId] });
-      queryClient.invalidateQueries({ queryKey: ["payments"] });
-      setPaymentDialogOpen(false);
-      setCashAmount("");
-      setCashNotes("");
-    },
-    onError: (err: Error) => toast.error(err.message),
-  });
+
 
   const saveUpgridMutation = useMutation({
     mutationFn: async () => {
@@ -865,15 +843,7 @@ export default function RiderDetailPage() {
     onError: (err: Error) => toast.error(err.message),
   });
 
-  // ── Wallet Transactions (ledger) ──────────────────────────────────────────
-  const { data: walletTxData } = useQuery<{ transactions: WalletTx[] }>({
-    queryKey: ["wallet-transactions", riderId],
-    queryFn: () => adminFetch(`/api/admin/riders/${riderId}/wallet-transactions`).then(r => r.json()),
-    enabled: !!riderId && activeTab === "payments",
-    staleTime: 0,
-  });
-  const walletTransactions = walletTxData?.transactions ?? [];
-
+  // Wallet Transactions (ledger) fetch removed as it was unused
   // ── Leave Mutation ─────────────────────────────────────────────────────────
   const leaveMutation = useMutation({
     mutationFn: async () => {
@@ -930,18 +900,6 @@ export default function RiderDetailPage() {
   const payments = useMemo(() => data?.payments ?? [], [data?.payments]);
   const serviceRequests = data?.service_requests ?? [];
 
-  const thisMonthTotal = useMemo(() => {
-    const now = new Date();
-    const m = now.getMonth();
-    const y = now.getFullYear();
-    return payments
-      .filter((p: PaymentRecord) => {
-        if (!p.payment_date) return false;
-        const d = new Date(p.payment_date);
-        return d.getMonth() === m && d.getFullYear() === y && p.status === "paid";
-      })
-      .reduce((sum: number, p: PaymentRecord) => sum + p.amount, 0);
-  }, [payments]);
 
   // ── Loading ──────────────────────────────────────────────────────────────
   if (isLoading) {
@@ -1125,6 +1083,7 @@ export default function RiderDetailPage() {
                       driver_id: (rider as Record<string, unknown>).driver_id as string ?? "",
                       gig_company: (rider as Record<string, unknown>).gig_company as string ?? "",
                       status: rider.status ?? "",
+                      admin_notes: (rider as Record<string, unknown>).admin_notes as string ?? "",
                       // Use "yyyy-MM-dd" for the HTML date input
                       created_at: rider.created_at ? format(new Date(rider.created_at), "yyyy-MM-dd") : format(new Date(), "yyyy-MM-dd"),
                     });
@@ -1170,15 +1129,44 @@ export default function RiderDetailPage() {
                 <UserCircle className="h-4 w-4" /> Rider Information
               </h3>
               {!isEditing || !editRider ? (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8">
-                  <InfoRow label="Full Name" value={rider.name} />
-                  <InfoRow label="Phone 1" value={rider.phone_1} />
-                  <InfoRow label="Phone 2" value={rider.phone_2} />
-                  <InfoRow label="Hub" value={rider.hubs?.name} />
-                  <InfoRow label="Status" value={rider.status} />
-                  <InfoRow label="Gig Company" value={(rider as any).gig_company || "Unspecified"} />
-                  <InfoRow label="Joined" value={rider.created_at ? format(new Date(rider.created_at), "dd MMM yyyy") : null} />
-                </div>
+                <>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8">
+                    <InfoRow label="Full Name" value={rider.name} />
+                    <InfoRow label="Phone 1" value={rider.phone_1} />
+                    <InfoRow label="Phone 2" value={rider.phone_2} />
+                    <InfoRow label="Hub" value={rider.hubs?.name} />
+                    <InfoRow label="Status" value={rider.status} />
+                    <InfoRow label="Gig Company" value={(rider as Record<string, unknown>).gig_company as string || "Unspecified"} />
+                    <InfoRow label="Joined" value={rider.created_at ? format(new Date(rider.created_at), "dd MMM yyyy") : null} />
+                  </div>
+                  {/* ── Admin Tracking Banner ── */}
+                  {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
+                  {((rider as any).added_by || (rider as any).admin_notes) && (
+                    <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 space-y-2.5">
+                      <p className="text-xs font-bold uppercase tracking-wider text-slate-500 flex items-center gap-1.5">
+                        <FileText className="h-3.5 w-3.5" /> Admin Tracking
+                      </p>
+                      {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
+                      {(rider as any).added_by && (
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs text-muted-foreground w-20 shrink-0">Added By</span>
+                          <span className="text-xs font-semibold text-slate-800 bg-blue-50 border border-blue-100 rounded-full px-2.5 py-0.5">
+                            {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
+                            👤 {(rider as any).added_by}
+                          </span>
+                        </div>
+                      )}
+                      {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
+                      {(rider as any).admin_notes && (
+                        <div className="flex items-start gap-2">
+                          <span className="text-xs text-muted-foreground w-20 shrink-0 mt-1">Audit Log</span>
+                          {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
+                          <ExpandableNote note={(rider as any).admin_notes} className="flex-1" />
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </>
               ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="space-y-1.5">
@@ -1237,6 +1225,15 @@ export default function RiderDetailPage() {
                       value={editRider.created_at}
                       max={format(new Date(), "yyyy-MM-dd")}
                       onChange={(e) => setEditRider({ ...editRider, created_at: e.target.value })}
+                    />
+                  </div>
+                  <div className="space-y-1.5 md:col-span-2">
+                    <Label className="text-xs text-muted-foreground">Admin Notes (Audit Trail)</Label>
+                    <Textarea 
+                      placeholder="Enter internal notes, audit trail info, or handover details..." 
+                      value={editRider.admin_notes} 
+                      onChange={(e) => setEditRider({ ...editRider, admin_notes: e.target.value })}
+                      rows={2}
                     />
                   </div>
                 </div>
@@ -1546,7 +1543,7 @@ export default function RiderDetailPage() {
         {/* ═══ TAB 3: Payments ═══ */}
         {activeTab === "payments" && (() => {
           const walletBal  = rider.wallet_balance ?? 0;
-          const rate       = (rider as any).daily_deduction_rate ?? 230;
+          const rate       = ((rider as Record<string, unknown>).daily_deduction_rate as number) ?? 230;
           const isNegative = walletBal < 0;
           const daysOwed   = isNegative ? Math.ceil(Math.abs(walletBal) / rate) : 0;
           const daysLeft   = !isNegative ? Math.floor(walletBal / rate) : 0;
@@ -1584,7 +1581,7 @@ export default function RiderDetailPage() {
                   )}
                 </div>
                 <div className="flex flex-wrap gap-2">
-                  <Button size="sm" className="gap-1.5 bg-[#0D2D6B] hover:bg-[#0D2D6B]/90" onClick={() => setPaymentDialogOpen(true)}>
+                  <Button size="sm" className="gap-1.5 bg-[#0D2D6B] hover:bg-[#0D2D6B]/90" onClick={() => setPaymentDrawerOpen(true)}>
                     <Plus className="h-3.5 w-3.5" /> Log Cash Payment
                   </Button>
                   <Button size="sm" variant="outline" className="gap-1.5" onClick={() => { setWalletAdjAmount(""); setWalletAdjReason(""); setWalletAdjOpen(true); }}>
@@ -1605,6 +1602,7 @@ export default function RiderDetailPage() {
                         <TableHead>Date</TableHead>
                         <TableHead>Type</TableHead>
                         <TableHead>Amount</TableHead>
+                        <TableHead>Notes</TableHead>
                         <TableHead>Method</TableHead>
                         <TableHead>Status</TableHead>
                       </TableRow>
@@ -1612,7 +1610,7 @@ export default function RiderDetailPage() {
                     <TableBody>
                       {payments.length === 0 ? (
                         <TableRow>
-                          <TableCell colSpan={5} className="h-24 text-center text-muted-foreground text-sm">
+                          <TableCell colSpan={6} className="h-24 text-center text-muted-foreground text-sm">
                             No payment records found
                           </TableCell>
                         </TableRow>
@@ -1632,14 +1630,27 @@ export default function RiderDetailPage() {
                                 {typeCfg.label}
                               </Badge>
                             </TableCell>
-                            <TableCell className="font-semibold">₹{p.amount.toLocaleString()}</TableCell>
+                            <TableCell className="font-semibold">₹{(p.amount || 0).toLocaleString()}</TableCell>
+                            <TableCell className="max-w-[220px]">
+                              <ExpandableNote note={p.notes} />
+                            </TableCell>
                             <TableCell>
-                              <Badge variant="outline" className={
-                                p.payment_method === "cash" ? "bg-emerald-50 text-emerald-700 border-emerald-100" :
-                                p.payment_method === "upi"  ? "bg-blue-50 text-blue-700 border-blue-100" : ""
-                              }>
-                                {p.payment_method ? p.payment_method.toUpperCase() : "—"}
-                              </Badge>
+                              {(() => {
+                                const m = (p.payment_method ?? "").toLowerCase();
+                                const METHOD_MAP: Record<string, { icon: string; label: string; cls: string }> = {
+                                  cash:     { icon: "💵", label: "Cash",     cls: "bg-emerald-50 text-emerald-700 border-emerald-200" },
+                                  upi:      { icon: "📲", label: "UPI",      cls: "bg-blue-50 text-blue-700 border-blue-200" },
+                                  razorpay: { icon: "💳", label: "Razorpay", cls: "bg-purple-50 text-purple-700 border-purple-200" },
+                                  online:   { icon: "🌐", label: "Online",   cls: "bg-indigo-50 text-indigo-700 border-indigo-200" },
+                                };
+                                const cfg = METHOD_MAP[m];
+                                if (!m || !cfg) return <span className="text-xs text-muted-foreground">—</span>;
+                                return (
+                                  <Badge variant="outline" className={`gap-1 text-xs font-semibold ${cfg.cls}`}>
+                                    {cfg.icon} {cfg.label}
+                                  </Badge>
+                                );
+                              })()}
                             </TableCell>
                             <TableCell>
                               <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-semibold ${
@@ -1691,31 +1702,37 @@ export default function RiderDetailPage() {
                       <TableHead>Description</TableHead>
                       <TableHead>Status</TableHead>
                       <TableHead>Created</TableHead>
-                      <TableHead>Resolved</TableHead>
+                      <TableHead>Resolution Info</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {serviceRequests.map((sr: ServiceRequest) => (
-                      <TableRow key={sr.id}>
-                        <TableCell className="text-sm capitalize font-medium">{sr.issue_description ?? "—"}</TableCell>
-                        <TableCell className="text-sm text-muted-foreground max-w-[300px] truncate">
-                           {sr.parts_selected && Array.isArray(sr.parts_selected) && sr.parts_selected.length > 0 
-                             ? `${sr.parts_selected.length} Part(s) Paid - ₹${sr.total_parts_cost}` 
-                             : "General Service"}
-                        </TableCell>
-                        <TableCell>
-                          <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-semibold ${
-                            sr.status === "resolved" ? "bg-emerald-100 text-emerald-700"
-                              : sr.status === "in_progress" ? "bg-blue-100 text-blue-700"
-                              : "bg-amber-100 text-amber-800"
-                          }`}>
-                            {sr.status}
-                          </span>
-                        </TableCell>
-                        <TableCell className="text-sm text-muted-foreground">{sr.created_at ? format(new Date(sr.created_at), "dd MMM yyyy") : "—"}</TableCell>
-                        <TableCell className="text-sm text-muted-foreground">{sr.resolved_at ? format(new Date(sr.resolved_at), "dd MMM yyyy") : "—"}</TableCell>
-                      </TableRow>
-                    ))}
+                    {serviceRequests.map((sr: ServiceRequest) => {
+                      return (
+                        <TableRow key={sr.id}>
+                          <TableCell className="text-sm capitalize font-medium">{sr.issue_description ?? "—"}</TableCell>
+                          <TableCell className="text-sm text-muted-foreground max-w-[200px] truncate">
+                             {sr.parts_selected && Array.isArray(sr.parts_selected) && sr.parts_selected.length > 0 
+                               ? `${sr.parts_selected.length} Part(s) Paid - ₹${sr.total_parts_cost}` 
+                               : "General Service"}
+                          </TableCell>
+                          <TableCell>
+                            <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-semibold ${
+                              sr.status === "resolved" ? "bg-emerald-100 text-emerald-700"
+                                : sr.status === "in_progress" ? "bg-blue-100 text-blue-700"
+                                : "bg-amber-100 text-amber-800"
+                            }`}>
+                              {sr.status}
+                            </span>
+                          </TableCell>
+                          <TableCell className="text-sm text-muted-foreground whitespace-nowrap">
+                            {sr.created_at ? format(new Date(sr.created_at), "dd MMM") : "—"}
+                          </TableCell>
+                          <TableCell>
+                            <ExpandableNote note={sr.resolution_notes} />
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
                   </TableBody>
                 </Table>
               </div>
@@ -2042,53 +2059,19 @@ export default function RiderDetailPage() {
         </DialogContent>
       </Dialog>
 
-      {/* ═══ CASH PAYMENT DIALOG ═══ */}
-      <Dialog open={paymentDialogOpen} onOpenChange={setPaymentDialogOpen}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>Log Cash Payment</DialogTitle>
-            <DialogDescription>Record a cash payment for <strong>{rider.name}</strong>.</DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4 py-2">
-            <div className="space-y-2">
-              <label className="text-sm font-medium">Amount (₹) *</label>
-              <Input type="number" placeholder="e.g. 500" value={cashAmount} onChange={(e) => setCashAmount(e.target.value)} min="1" />
-            </div>
-            <div className="space-y-2">
-              <label className="text-sm font-medium">Plan Type</label>
-              <select
-                value={cashPlan}
-                onChange={(e) => setCashPlan(e.target.value)}
-                className="flex h-10 w-full rounded-md border border-input bg-background px-3 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring"
-              >
-                <option value="daily">Daily</option>
-                <option value="weekly">Weekly</option>
-                <option value="monthly">Monthly</option>
-                <option value="security_deposit">Security Deposit</option>
-              </select>
-            </div>
-            <div className="space-y-2">
-              <label className="text-sm font-medium flex items-center gap-2"><Calendar className="h-3.5 w-3.5" /> Date</label>
-              <Input type="date" value={cashDate} onChange={(e) => setCashDate(e.target.value)} />
-            </div>
-            <div className="space-y-2">
-              <label className="text-sm font-medium">Notes</label>
-              <Textarea placeholder="Optional notes…" value={cashNotes} onChange={(e) => setCashNotes(e.target.value)} rows={2} />
-            </div>
-          </div>
-          <DialogFooter className="gap-2 sm:gap-0">
-            <Button variant="ghost" onClick={() => setPaymentDialogOpen(false)}>Cancel</Button>
-            <Button
-              className="gap-2"
-              disabled={!cashAmount || parseFloat(cashAmount) <= 0 || logPaymentMutation.isPending}
-              onClick={() => logPaymentMutation.mutate()}
-            >
-              {logPaymentMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
-              Log Payment
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      {/* ═══ CASH PAYMENT DRAWER ═══ */}
+      <Sheet open={paymentDrawerOpen} onOpenChange={setPaymentDrawerOpen}>
+        <LogCashPaymentDrawer
+          riderId={riderId}
+          riderName={rider.name}
+          adminId={adminId}
+          onSuccess={() => {
+            queryClient.invalidateQueries({ queryKey: ["rider-full", riderId] });
+            queryClient.invalidateQueries({ queryKey: ["payments"] });
+            setPaymentDrawerOpen(false);
+          }}
+        />
+      </Sheet>
 
       {/* ═══ ASSIGN VEHICLE DIALOG ═══ */}
       <Dialog
@@ -2099,11 +2082,13 @@ export default function RiderDetailPage() {
             setAssignStep(1);
             setSelectedVehicleId("");
             setAssignVehicleIdInput("");
+            setComboboxOpen(false);
             setAssignChecklist(DEFAULT_HANDOVER_FORM);
           } else {
             setAssignStep(1);
             setSelectedVehicleId("");
             setAssignVehicleIdInput("");
+            setComboboxOpen(false);
           }
         }}
       >
@@ -2128,44 +2113,78 @@ export default function RiderDetailPage() {
                   No vehicles are currently available in the fleet.
                 </div>
               ) : (
-                <div className="space-y-4">
-                  <div className="space-y-2">
-                    <label className="text-sm font-medium">Vehicle ID (type or pick from list)</label>
-                    <Input
-                      placeholder="e.g. VFEL1001"
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Vehicle ID</label>
+                  {/* ── Combobox: type to filter, click to select ── */}
+                  <div className="relative">
+                    <input
+                      type="text"
+                      placeholder="Type to search (e.g. VFEL1001)…"
                       value={assignVehicleIdInput}
-                      onChange={(e) => setAssignVehicleIdInput(e.target.value)}
-                      onBlur={() => {
-                        resolveAssignVehicleIdInput();
-                      }}
-                      className="font-mono"
-                    />
-                    <p className="text-xs text-muted-foreground">
-                      Must match an available vehicle ID. Blur or use Next to apply.
-                    </p>
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-sm font-medium">Available vehicles (VFEL order)</label>
-                    <select
-                      value={selectedVehicleId}
+                      className="flex h-10 w-full rounded-md border border-input bg-background px-3 pr-8 text-sm font-mono ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring placeholder:font-sans placeholder:text-muted-foreground"
+                      autoComplete="off"
                       onChange={(e) => {
-                        const id = e.target.value;
-                        setSelectedVehicleId(id);
-                        const v = (sortedAvailableVehicles as { id: string; vehicle_id?: string | null; chassis_number: string }[]).find((x) => x.id === id);
-                        setAssignVehicleIdInput(
-                          v ? ((v as { vehicle_id?: string | null; chassis_number: string }).vehicle_id || "").trim() : ""
-                        );
+                        setAssignVehicleIdInput(e.target.value);
+                        setSelectedVehicleId(""); // clear selection when typing
+                        setComboboxOpen(true);
                       }}
-                      className="flex h-10 w-full rounded-md border border-input bg-background px-3 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring"
+                      onFocus={() => setComboboxOpen(true)}
+                      onBlur={() => setTimeout(() => setComboboxOpen(false), 150)}
+                    />
+                    <button
+                      type="button"
+                      tabIndex={-1}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-slate-700 transition-colors"
+                      onMouseDown={(e) => { e.preventDefault(); setComboboxOpen((o) => !o); }}
                     >
-                      <option value="" disabled>Select a vehicle...</option>
-                      {(sortedAvailableVehicles as { id: string; vehicle_id?: string; chassis_number: string; hubs?: { name: string } }[]).map((v) => (
-                        <option key={v.id} value={v.id}>
-                          {v.vehicle_id || v.chassis_number.slice(-6)} — {v.hubs?.name || "No Hub"} (Chassis: {v.chassis_number})
-                        </option>
-                      ))}
-                    </select>
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+                    </button>
+
+                    {comboboxOpen && (() => {
+                      const query = assignVehicleIdInput.trim().toUpperCase();
+                      const matches = (sortedAvailableVehicles as { id: string; vehicle_id?: string; chassis_number: string; hubs?: { name: string } }[]).filter(
+                        (v) => !query ||
+                          (v.vehicle_id || "").toUpperCase().includes(query) ||
+                          v.chassis_number.toUpperCase().includes(query) ||
+                          (v.hubs?.name || "").toUpperCase().includes(query)
+                      );
+                      if (!matches.length) return null;
+                      return (
+                        <div className="absolute top-full left-0 right-0 mt-1 z-50 bg-white border border-slate-200 rounded-lg shadow-xl max-h-52 overflow-y-auto ring-1 ring-black/5">
+                          {matches.map((v) => (
+                            <button
+                              key={v.id}
+                              type="button"
+                              className={`w-full text-left px-3 py-2 text-sm flex items-center justify-between hover:bg-slate-50 transition-colors ${
+                                selectedVehicleId === v.id ? "bg-primary/5 text-primary font-semibold" : ""
+                              }`}
+                              onMouseDown={(e) => {
+                                e.preventDefault();
+                                setSelectedVehicleId(v.id);
+                                setAssignVehicleIdInput(v.vehicle_id || v.chassis_number.slice(-6));
+                                setComboboxOpen(false);
+                              }}
+                            >
+                              <span className="font-mono font-medium">{v.vehicle_id || v.chassis_number.slice(-6)}</span>
+                              <span className="text-xs text-muted-foreground">{v.hubs?.name || "No Hub"}</span>
+                            </button>
+                          ))}
+                        </div>
+                      );
+                    })()}
                   </div>
+                  {selectedVehicleId && (() => {
+                    const v = (sortedAvailableVehicles as { id: string; vehicle_id?: string; chassis_number: string; hubs?: { name: string } }[]).find(x => x.id === selectedVehicleId);
+                    return v ? (
+                      <p className="text-xs text-emerald-700 font-medium flex items-center gap-1">
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" className="shrink-0"><polyline points="20 6 9 17 4 12"/></svg>
+                        Selected: {v.vehicle_id || v.chassis_number.slice(-6)} — {v.hubs?.name || "No Hub"} · Chassis: {v.chassis_number}
+                      </p>
+                    ) : null;
+                  })()}
+                  {!selectedVehicleId && assignVehicleIdInput.trim() && (
+                    <p className="text-xs text-amber-600">No match yet — keep typing or pick from the list.</p>
+                  )}
                 </div>
               )}
             </div>
@@ -2184,19 +2203,10 @@ export default function RiderDetailPage() {
             {assignStep === 1 ? (
               <Button
                 className="gap-2"
-                disabled={!selectedVehicleId && !assignVehicleIdInput.trim()}
+                disabled={!selectedVehicleId}
                 onClick={() => {
-                  let vid: string | null = selectedVehicleId || null;
-                  if (assignVehicleIdInput.trim()) {
-                    const resolved = resolveAssignVehicleIdInput();
-                    if (!resolved) {
-                      toast.error("No vehicle matches that Vehicle ID.");
-                      return;
-                    }
-                    vid = resolved;
-                  }
-                  if (!vid) {
-                    toast.error("Select a vehicle from the list or enter a valid Vehicle ID.");
+                  if (!selectedVehicleId) {
+                    toast.error("Please select a vehicle from the list.");
                     return;
                   }
                   setAssignStep(2);

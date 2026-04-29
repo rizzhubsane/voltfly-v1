@@ -85,6 +85,12 @@ export async function PATCH(request: Request) {
       return NextResponse.json({ error: "No valid fields to update" }, { status: 400 });
     }
 
+    // If updating resolution_notes, append admin attribution
+    if (sanitizedUpdates.resolution_notes) {
+      const adminName = auth.admin.name || auth.admin.email || "Admin";
+      sanitizedUpdates.resolution_notes = `${sanitizedUpdates.resolution_notes} (Logged by: ${adminName})`;
+    }
+
     const { error } = await supabaseAdmin
       .from("service_requests")
       .update(sanitizedUpdates)
@@ -114,7 +120,7 @@ export async function POST(request: Request) {
     }
 
     const body = await request.json();
-    const { riderId, type, description, status, parts_selected, total_parts_cost, payment_status } = body;
+    const { riderId, description, status, parts_selected, total_parts_cost, payment_status } = body;
 
     if (!riderId) {
       return NextResponse.json({ error: "Rider is required" }, { status: 400 });
@@ -146,6 +152,7 @@ export async function POST(request: Request) {
         total_parts_cost: total_parts_cost || 0,
         payment_status: payment_status || "n/a",
         created_at: nowISO,
+        resolution_notes: `Logged by: ${auth.admin.name || auth.admin.email || "Admin"}`,
       })
       .select()
       .single();
@@ -161,7 +168,7 @@ export async function POST(request: Request) {
         status: "paid",
         paid_at: nowISO,
         due_date: nowISO.split("T")[0],
-        notes: `Admin recorded Spares: ${(parts_selected || []).map((p: any) => p.name).join(", ")}`,
+        notes: `Admin recorded Spares: ${(parts_selected || []).map((p: { name: string }) => p.name).join(", ")} (Logged by: ${auth.admin.name || auth.admin.email || "Admin"})`,
       });
       if (paymentError) {
         console.warn("[add-service-request] payment track error:", paymentError);

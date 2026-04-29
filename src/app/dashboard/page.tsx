@@ -194,7 +194,6 @@ export default function DashboardOverview() {
         return true;
       };
 
-      const now = new Date();
       const todayStart = new Date();
       todayStart.setHours(0, 0, 0, 0);
 

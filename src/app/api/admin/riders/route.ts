@@ -191,6 +191,7 @@ export async function POST(request: Request) {
       driver_id: driver_id?.trim() || null,
       status: status || "pending_kyc",
       outstanding_balance: 0,
+      added_by: auth.admin.name || auth.admin.email || "Unknown Admin",
       ...(created_at ? { created_at } : {}),
     };
 

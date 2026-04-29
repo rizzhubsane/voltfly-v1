@@ -117,7 +117,7 @@ export async function POST(request: Request) {
         paid_at: nowISO,
         due_date: nowISO,
         recorded_by: adminId,
-        notes: "Offline onboarding fee (handling + verification)",
+        notes: `Offline onboarding fee (handling + verification) (Logged by: ${auth.admin.name || auth.admin.email || "Admin"})`,
         created_at: nowISO,
       });
 
@@ -138,7 +138,7 @@ export async function POST(request: Request) {
           paid_at: nowISO,
           
           recorded_by: adminId,
-          notes: onboardingNote,
+          notes: `${onboardingNote} (Logged by: ${auth.admin.name || auth.admin.email || "Admin"})`,
           created_at: nowISO,
         });
 
@@ -162,7 +162,7 @@ export async function POST(request: Request) {
           paid_at: null,
            // expected to be cleared by the next payment
           recorded_by: adminId,
-          notes: `Outstanding balance from offline onboarding. Rider paid ₹${cash} of ₹${PRICING.FULL_ONBOARDING} due. Remaining: ₹${outstandingBalance}.`,
+          notes: `Outstanding balance from offline onboarding. Rider paid ₹${cash} of ₹${PRICING.FULL_ONBOARDING} due. Remaining: ₹${outstandingBalance}. (Logged by: ${auth.admin.name || auth.admin.email || "Admin"})`,
           created_at: nowISO,
         });
 

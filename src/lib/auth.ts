@@ -15,7 +15,7 @@ export async function verifyAdmin(
   request: Request,
   requiredRole?: "super_admin" | "hub_manager"
 ): Promise<
-  | { admin: { id: string; role: string; hub_id: string | null }; error?: never }
+  | { admin: { id: string; role: string; hub_id: string | null; name?: string; email?: string }; error?: never }
   | { admin?: never; error: NextResponse }
 > {
   if (!supabaseAdmin) {
@@ -58,7 +58,7 @@ export async function verifyAdmin(
   // Look up admin record
   const { data: adminRecord, error: adminError } = await supabaseAdmin
     .from("admin_users")
-    .select("id, role, hub_id, is_active")
+    .select("id, role, hub_id, is_active, name, email")
     .eq("id", user.id)
     .single();
 

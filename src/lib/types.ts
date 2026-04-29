@@ -84,6 +84,8 @@ export interface Database {
           leave_reason: string | null
           leave_expected_return: string | null
           created_at: string | null
+          added_by: string | null
+          admin_notes: string | null
         }
         Insert: {
           id?: string
@@ -101,6 +103,8 @@ export interface Database {
           leave_reason?: string | null
           leave_expected_return?: string | null
           created_at?: string | null
+          added_by?: string | null
+          admin_notes?: string | null
         }
         Update: {
           id?: string
@@ -118,6 +122,8 @@ export interface Database {
           leave_reason?: string | null
           leave_expected_return?: string | null
           created_at?: string | null
+          added_by?: string | null
+          admin_notes?: string | null
         }
         Relationships: [
           {
@@ -866,6 +872,7 @@ export interface ServiceRequest {
   total_parts_cost: number | null;
   created_at: string | null;
   resolved_at: string | null;
+  resolution_notes: string | null;
 }
 
 export interface BatteryEvent {

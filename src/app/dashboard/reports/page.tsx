@@ -297,14 +297,13 @@ export default function ReportsPage() {
     ).length;
 
     // Overdue (wallet_balance <= 0)
-    const today = now;
     const overdue = list.filter(
       (r) =>
         r.wallet_balance !== null && r.wallet_balance <= 0
     ).length;
 
     return { total, byStatus, topHubs, topGigs, newThisMonth, overdue };
-  }, [riders, monthStart, now]);
+  }, [riders, monthStart]);
 
 
 
@@ -682,7 +681,7 @@ export default function ReportsPage() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {riderStats.topHubs.map(([hub, count], i) => (
+                    {riderStats.topHubs.map(([hub, count]) => (
                       <TableRow key={hub} className="hover:bg-slate-50/50">
                         <TableCell className="font-medium">{hub}</TableCell>
                         <TableCell className="text-right font-bold">{count}</TableCell>

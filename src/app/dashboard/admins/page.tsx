@@ -412,7 +412,7 @@ export default function AdminsPage() {
                 <label className="text-sm font-medium">Initial Password</label>
                 <Input 
                   required 
-                  type="password" 
+                  type="text" 
                   placeholder="At least 6 characters" 
                   value={formData.password}
                   onChange={e => setFormData({ ...formData, password: e.target.value })}

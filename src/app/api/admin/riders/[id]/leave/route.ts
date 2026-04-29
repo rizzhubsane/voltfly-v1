@@ -87,7 +87,7 @@ export async function PATCH(
         .update({
           status:                "on_leave",
           leave_started_at:      nowISO,
-          leave_reason:          reason.trim(),
+          leave_reason:          `${reason.trim()} (Logged by: ${auth.admin.name || auth.admin.email || "Admin"})`,
           leave_expected_return: expectedReturn ?? null,
         })
         .eq("id", riderId);

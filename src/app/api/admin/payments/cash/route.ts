@@ -12,21 +12,21 @@ export async function POST(request: Request) {
     }
 
     const body = await request.json();
-    const { riderId, amount, planType, paidAt, notes } = body;
+    const { riderId, amount, planType, paidAt, notes, method } = body;
     const adminId = auth.admin.id;
 
     if (!riderId || !amount || !planType) {
       return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
     }
 
-    // Determine if this payment is a rental extension (adds to wallet)
     let cycleDays = 0;
     if (planType === "daily")        cycleDays = 1;
     else if (planType === "weekly")  cycleDays = 7;
     else if (planType === "monthly") cycleDays = 30;
     else if (planType === "custom")  cycleDays = Number(body.cycleDays) || 0;
 
-    const isRentalExtension = cycleDays > 0;
+    // Consider wallet_topup or any cycleDays > 0 as a rental extension
+    const isRentalExtension = cycleDays > 0 || planType === "wallet_topup" || planType === "custom";
     const paidDate = new Date(paidAt || new Date().toISOString());
     const nowISO   = new Date().toISOString();
 
@@ -37,12 +37,12 @@ export async function POST(request: Request) {
         rider_id:    riderId,
         amount:      amount,
         plan_type:   planType,
-        method:      "cash",
+        method:      method || "cash",
         status:      "paid",
         due_date:    paidDate.toISOString().slice(0, 10),  // NOT NULL — default to payment date
         paid_at:     paidDate.toISOString(),
         recorded_by: adminId,
-        notes:       notes || null,
+        notes:       notes ? `${notes} (Logged by: ${auth.admin.name || auth.admin.email || "Admin"})` : `Logged by: ${auth.admin.name || auth.admin.email || "Admin"}`,
         created_at:  nowISO,
       })
       .select()
@@ -64,7 +64,8 @@ export async function POST(request: Request) {
       const dailyRate       = rider?.daily_deduction_rate ?? 230;
 
       // 2. Update wallet balance atomically via RPC
-      const { data: rpcData, error: rpcErr } = await supabaseAdmin.rpc("increment_wallet", {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { data: rpcData, error: rpcErr } = await (supabaseAdmin as any).rpc("increment_wallet", {
         rider_id: riderId,
         amount: amount,
       });
@@ -92,7 +93,7 @@ export async function POST(request: Request) {
         balance_before: currentWallet,
         balance_after:  walletAfter,
         reference_id:   payment.id,
-        notes:          `Cash payment (${planType}) recorded by admin`,
+        notes:          `Cash payment (${planType}) recorded by ${auth.admin.name || auth.admin.email || "admin"}`,
         created_at:     nowISO,
       });
 
@@ -110,6 +111,16 @@ export async function POST(request: Request) {
       }
     }
     // Service / onboarding_fee / security_deposit → no wallet change — just logged in payments table
+    if (planType === "security_deposit") {
+      // 4. Sync with security_deposits table for refund tracking
+      await supabaseAdmin.from("security_deposits").insert({
+        rider_id: riderId,
+        amount_paid: amount,
+        status: "held",
+        notes: notes || "Initial security deposit",
+        created_at: nowISO,
+      });
+    }
 
 
     return NextResponse.json({

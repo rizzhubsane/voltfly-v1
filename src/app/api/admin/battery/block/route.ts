@@ -42,9 +42,24 @@ export async function POST(request: Request) {
     }
 
     // 3. Sync rider status so both storage locations stay consistent
+    const adminName = auth.admin.name || auth.admin.email || "Admin";
+
+    // Fetch existing notes to prevent overwrite
+    const { data: riderData } = await supabaseAdmin
+      .from("riders")
+      .select("admin_notes")
+      .eq("id", riderId)
+      .single();
+
+    const existingNotes = riderData?.admin_notes ? `${riderData.admin_notes}\n` : "";
+    const auditStr = `Swap access blocked: ${reason} (Logged by: ${adminName})`;
+
     const { error: riderUpdateError } = await supabaseAdmin
       .from("riders")
-      .update({ status: "suspended" })
+      .update({ 
+        status: "suspended",
+        admin_notes: `${existingNotes}${auditStr}`
+      })
       .eq("id", riderId);
 
     if (riderUpdateError) {

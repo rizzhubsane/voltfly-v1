@@ -1,6 +1,7 @@
 "use client";
 import { adminFetch } from "@/lib/adminFetch";
 import { AddServiceRequestDrawer } from "@/components/service/AddServiceRequestDrawer";
+import { ExpandableNote } from "@/components/shared/ExpandableNote";
 
 import { useState, useMemo, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -311,6 +312,7 @@ export default function ServiceRequestsPage() {
                              <span className="text-[10px] text-muted-foreground">{r.parts_selected.length} item(s)</span>
                           </div>
                        )}
+                       <ExpandableNote note={r.resolution_notes} className="mt-2" />
                     </div>
                   </TableCell>
                   <TableCell>
