@@ -143,7 +143,23 @@ async function fetchRiders(hubId: string | null): Promise<RiderWithHub[]> {
   }
 
   const { data, error } = await query;
-  if (!error) return (data as RiderWithHub[]) ?? [];
+  if (!error) {
+    // Also fetch vehicle assignments for this batch
+    const rows = (data as RiderWithHub[]) ?? [];
+    const riderIds = rows.map((r) => r.id).filter(Boolean);
+    const { data: vehicleRows } = riderIds.length > 0
+      ? await supabase
+          .from("vehicles")
+          .select("vehicle_id, chassis_number, assigned_rider_id")
+          .in("assigned_rider_id", riderIds)
+      : { data: [] };
+    const vehicleByRider = new Map(
+      (vehicleRows || [])
+        .filter((v) => v.assigned_rider_id)
+        .map((v) => [v.assigned_rider_id as string, v.vehicle_id || v.chassis_number || null])
+    );
+    return rows.map((r) => ({ ...r, vehicle_id: vehicleByRider.get(r.id) ?? null }));
+  }
 
   let baseQuery = supabase
     .from("riders")
@@ -164,9 +180,25 @@ async function fetchRiders(hubId: string | null): Promise<RiderWithHub[]> {
   if (hubError) throw hubError;
 
   const hubById = new Map((hubRows || []).map((h) => [h.id, h.name]));
+
+  // Also join vehicles in deep fallback
+  const riderIds2 = (riderRows || []).map((r) => r.id).filter(Boolean);
+  const { data: vehicleRows2 } = riderIds2.length > 0
+    ? await supabase
+        .from("vehicles")
+        .select("vehicle_id, chassis_number, assigned_rider_id")
+        .in("assigned_rider_id", riderIds2)
+    : { data: [] };
+  const vehicleByRider2 = new Map(
+    (vehicleRows2 || [])
+      .filter((v) => v.assigned_rider_id)
+      .map((v) => [v.assigned_rider_id as string, v.vehicle_id || v.chassis_number || null])
+  );
+
   return (riderRows || []).map((r) => ({
     ...r,
     hubs: r.hub_id && hubById.get(r.hub_id) ? { name: hubById.get(r.hub_id)! } : null,
+    vehicle_id: vehicleByRider2.get(r.id) ?? null,
   })) as RiderWithHub[];
 }
 
@@ -639,7 +671,7 @@ export default function RidersPage() {
                     {rider.vehicle_id ? (
                       <Link
                         href={`/dashboard/riders/${rider.id}?tab=vehicle`}
-                        className="font-mono text-xs font-semibold text-[#0D2D6B] hover:underline underline-offset-2"
+                        className="text-sm font-semibold text-[#0D2D6B] hover:underline underline-offset-2"
                         title="View vehicle details"
                       >
                         {rider.vehicle_id}
@@ -657,7 +689,7 @@ export default function RidersPage() {
 
                   {/* Driver ID (Upgrid) — inline from API */}
                   <TableCell>
-                    <span className="font-mono text-xs font-medium text-slate-700">
+                    <span className="text-sm text-slate-600">
                       {rider.driver_id || <span className="text-muted-foreground">—</span>}
                     </span>
                   </TableCell>
