@@ -284,11 +284,20 @@ export function AddRiderDrawer({ defaultHubId, onSuccess }: AddRiderDrawerProps)
               placeholder="e.g. D263669"
               value={rider.driver_id}
               onChange={(e) => setRider((p) => ({ ...p, driver_id: e.target.value }))}
-              className="font-mono pl-9 h-10 rounded-xl border-slate-200"
+              className={`pl-9 h-10 rounded-xl ${
+                /^VFEL\d+$/i.test(rider.driver_id.trim())
+                  ? "border-orange-400 bg-orange-50 focus-visible:ring-orange-400"
+                  : "border-slate-200"
+              }`}
             />
           </div>
+          {/^VFEL\d+$/i.test(rider.driver_id.trim()) && (
+            <p className="text-[11px] font-semibold text-orange-600 flex items-center gap-1">
+              ⚠️ This looks like a Vehicle ID (VFEL…), not an Upgrid Driver ID. Vehicle IDs should be assigned from the vehicle section, not here.
+            </p>
+          )}
           <p className="text-[10px] text-muted-foreground font-medium uppercase tracking-tight">
-            Required for BatterySmart battery swap access
+            Upgrid Driver ID only — starts with D followed by digits (e.g. D263669)
           </p>
         </div>
 
