@@ -43,7 +43,6 @@ interface RiderFormValues {
   phone_2: string;
   hub_id: string;
   driver_id: string;
-  status: string;
 }
 
 interface KycFormValues {
@@ -67,18 +66,12 @@ interface AddRiderDrawerProps {
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const STATUS_OPTIONS = [
-  { value: "pending_kyc", label: "Pending KYC" },
-  { value: "kyc_approved", label: "KYC Approved" },
-];
-
 const EMPTY_RIDER: RiderFormValues = {
   name: "",
   phone_1: "",
   phone_2: "",
   hub_id: "",
   driver_id: "",
-  status: "pending_kyc",
 };
 
 const EMPTY_KYC: KycFormValues = {
@@ -142,7 +135,7 @@ export function AddRiderDrawer({ defaultHubId, onSuccess }: AddRiderDrawerProps)
         phone_2: rider.phone_2.trim() || null,
         hub_id: rider.hub_id || null,
         driver_id: rider.driver_id.trim() || null,
-        status: rider.status,
+        status: "pending_kyc",
         created_at: onboardingDate ? new Date(onboardingDate).toISOString() : undefined,
       };
       if (hasKycData) payload.kyc = kyc;
@@ -299,28 +292,6 @@ export function AddRiderDrawer({ defaultHubId, onSuccess }: AddRiderDrawerProps)
           <p className="text-[10px] text-muted-foreground font-medium uppercase tracking-tight">
             Upgrid Driver ID only — starts with D followed by digits (e.g. D263669)
           </p>
-        </div>
-
-        {/* ── Initial Status ───────────────────────────────────────────── */}
-        <div className="space-y-2">
-          <Label className="text-xs font-bold uppercase tracking-wider text-slate-500">
-            Initial Status
-          </Label>
-          <Select
-            value={rider.status}
-            onValueChange={(v) => setRider((p) => ({ ...p, status: v }))}
-          >
-            <SelectTrigger className="h-10 rounded-xl border-slate-200 bg-white">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent className="rounded-xl">
-              {STATUS_OPTIONS.map((o) => (
-                <SelectItem key={o.value} value={o.value} className="rounded-lg">
-                  {o.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
         </div>
 
         {/* ── Onboarding Date ─────────────────────────────────────────── */}

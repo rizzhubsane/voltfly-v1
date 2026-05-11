@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
 import { verifyAdmin } from "@/lib/auth";
 import { PRICING } from "@/lib/pricingConstants";
+import { logAdminActivity } from "@/lib/logAdminActivity";
 
 /**
  * POST /api/admin/riders/offline-onboard
@@ -92,7 +93,6 @@ export async function POST(request: Request) {
       .upsert(
         {
           rider_id: riderId,
-          amount: PRICING.SECURITY_DEPOSIT,
           amount_paid: PRICING.SECURITY_DEPOSIT,
           status: "held",
           created_at: nowISO,
@@ -136,7 +136,7 @@ export async function POST(request: Request) {
           method: "cash",
           status: "paid",
           paid_at: nowISO,
-          
+          due_date: nowISO,
           recorded_by: adminId,
           notes: `${onboardingNote} (Logged by: ${auth.admin.name || auth.admin.email || "Admin"})`,
           created_at: nowISO,
@@ -160,7 +160,7 @@ export async function POST(request: Request) {
           method: "cash",
           status: "pending",
           paid_at: null,
-           // expected to be cleared by the next payment
+          due_date: nowISO,
           recorded_by: adminId,
           notes: `Outstanding balance from offline onboarding. Rider paid ₹${cash} of ₹${PRICING.FULL_ONBOARDING} due. Remaining: ₹${outstandingBalance}. (Logged by: ${auth.admin.name || auth.admin.email || "Admin"})`,
           created_at: nowISO,
@@ -198,6 +198,26 @@ export async function POST(request: Request) {
     console.log(
       `[offline-onboard] Rider ${riderId} activated. Cash: ₹${cash}, Outstanding: ₹${outstandingBalance}, Wallet Balance: ₹${rentalCredit - outstandingBalance}`
     );
+
+    // ── Log admin activity ────────────────────────────────────────────────
+    await logAdminActivity(supabaseAdmin, {
+      admin_id: adminId,
+      admin_name: auth.admin.name ?? auth.admin.email ?? "Admin",
+      action_type: "rider_activated",
+      entity_type: "rider",
+      entity_id: riderId,
+      rider_id: riderId,
+      description: `Offline onboarded and activated rider ${rider.name}. Cash: ₹${cash}, Wallet: ₹${rentalCredit}, Outstanding: ₹${outstandingBalance}`,
+      metadata: {
+        cash_received: cash,
+        security_deposit: PRICING.SECURITY_DEPOSIT,
+        onboarding_fees: PRICING.ONBOARDING_FEES,
+        rental_credit: rentalCredit,
+        outstanding_balance: outstandingBalance,
+        grant_days: days,
+        hub_id: hubId ?? null,
+      },
+    });
 
     return NextResponse.json({
       success: true,

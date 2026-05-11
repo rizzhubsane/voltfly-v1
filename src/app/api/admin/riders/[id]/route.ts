@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
 import { verifyAdmin } from "@/lib/auth";
 import { getErrorMessage, logPostgrestError } from "@/lib/errorMessage";
+import { logAdminActivity } from "@/lib/logAdminActivity";
 
 export const dynamic = "force-dynamic";
 
@@ -132,11 +133,32 @@ export async function PATCH(
         } else {
           const { error } = await supabaseAdmin
             .from("kyc")
-            .insert({ rider_id: riderId, kyc_status: "pending", ...sanitizedKyc });
+            .insert({ rider_id: riderId, kyc_status: "submitted", ...sanitizedKyc });
           if (error) throw error;
         }
       }
     }
+
+    // ── Log admin activity ────────────────────────────────────────────────
+    const adminName = auth.admin.name ?? auth.admin.email ?? "Admin";
+    const changedSections: string[] = [];
+    if (riderUpdates && Object.keys(riderUpdates).length > 0) changedSections.push("profile");
+    if (kycUpdates && Object.keys(kycUpdates).length > 0) changedSections.push("KYC");
+
+    await logAdminActivity(supabaseAdmin, {
+      admin_id: auth.admin.id,
+      admin_name: adminName,
+      action_type: "rider_profile_edit",
+      entity_type: "rider",
+      entity_id: riderId,
+      rider_id: riderId,
+      description: `Updated rider ${changedSections.join(" & ")} fields`,
+      metadata: {
+        rider_fields: riderUpdates ? Object.keys(riderUpdates) : [],
+        kyc_fields: kycUpdates ? Object.keys(kycUpdates) : [],
+        status_change: riderUpdates?.status ?? null,
+      },
+    });
 
     return NextResponse.json({ success: true });
   } catch (err: unknown) {

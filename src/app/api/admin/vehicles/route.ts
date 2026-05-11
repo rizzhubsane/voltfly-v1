@@ -133,7 +133,7 @@ export async function POST(request: Request) {
 
     // Whitelist the columns callers are allowed to set — never spread raw body into DB.
     const ALLOWED_VEHICLE_FIELDS = [
-      "vehicle_id", "chassis_number", "hub_id", "assigned_rider_id", "assigned_at",
+      "vehicle_id", "chassis_number", "vin_number", "battery_operator", "hub_id", "assigned_rider_id", "assigned_at",
     ] as const;
     type AllowedField = (typeof ALLOWED_VEHICLE_FIELDS)[number];
     const vehicleData: VehicleUpdate = {};
@@ -169,42 +169,51 @@ export async function POST(request: Request) {
           riderToClearDriver = existingVeh.assigned_rider_id;
         } else if (body.assigned_rider_id) {
           const vfel = normalizeVfel(merged.vehicle_id);
-          if (!vfel) {
-            return NextResponse.json(
-              {
-                error:
-                  "Vehicle must have a VFEL vehicle_id (e.g. VFEL1001) before assignment. Update the vehicle record or add it to vehicle_upgrid_pairing.",
-              },
-              { status: 400 }
-            );
+          // ── IndoFast vehicles (SUN- prefix): no Upgrid API, no pairing needed ──
+          const isIndoFast = vfel.startsWith("SUN-") ||
+            ((existingVeh as unknown as Record<string, unknown>).battery_operator as string) === "indofast" ||
+            body.battery_operator === "indofast";
+
+          if (!isIndoFast) {
+            // BatterySmart: must have VFEL ID and valid pairing
+            if (!vfel) {
+              return NextResponse.json(
+                {
+                  error:
+                    "Vehicle must have a VFEL vehicle_id (e.g. VFEL1001) before assignment. Update the vehicle record or add it to vehicle_upgrid_pairing.",
+                },
+                { status: 400 }
+              );
+            }
+
+            const { data: pairing, error: pErr } = await supabaseAdmin
+              .from("vehicle_upgrid_pairing")
+              .select("driver_id, chassis_number")
+              .eq("vehicle_id", vfel)
+              .maybeSingle();
+
+            if (pErr) throw pErr;
+            if (!pairing) {
+              return NextResponse.json(
+                {
+                  error: `No fleet pairing row for ${vfel}. Import the pairing spreadsheet into vehicle_upgrid_pairing or add the row in Supabase.`,
+                },
+                { status: 400 }
+              );
+            }
+
+            if (normalizeChassis(merged.chassis_number) !== normalizeChassis(pairing.chassis_number)) {
+              return NextResponse.json(
+                {
+                  error: `Chassis mismatch for ${vfel}: vehicle has "${merged.chassis_number}" but fleet pairing expects "${pairing.chassis_number}". Fix the vehicle record or pairing data.`,
+                },
+                { status: 400 }
+              );
+            }
+
+            pairingDriverId = pairing.driver_id;
           }
-
-          const { data: pairing, error: pErr } = await supabaseAdmin
-            .from("vehicle_upgrid_pairing")
-            .select("driver_id, chassis_number")
-            .eq("vehicle_id", vfel)
-            .maybeSingle();
-
-          if (pErr) throw pErr;
-          if (!pairing) {
-            return NextResponse.json(
-              {
-                error: `No fleet pairing row for ${vfel}. Import the pairing spreadsheet into vehicle_upgrid_pairing or add the row in Supabase.`,
-              },
-              { status: 400 }
-            );
-          }
-
-          if (normalizeChassis(merged.chassis_number) !== normalizeChassis(pairing.chassis_number)) {
-            return NextResponse.json(
-              {
-                error: `Chassis mismatch for ${vfel}: vehicle has "${merged.chassis_number}" but fleet pairing expects "${pairing.chassis_number}". Fix the vehicle record or pairing data.`,
-              },
-              { status: 400 }
-            );
-          }
-
-          pairingDriverId = pairing.driver_id;
+          // IndoFast: pairingDriverId stays null — no Upgrid driver_id needed
         }
       }
 

@@ -47,7 +47,7 @@ import {
   ArrowLeft,
   Loader2,
   Phone,
-
+  Download,
   CreditCard,
   Users,
   FileText,
@@ -1357,7 +1357,7 @@ export default function RiderDetailPage() {
                           "Aadhaar Front": k.aadhaar_front_url,
                           "Aadhaar Back": k.aadhaar_back_url,
                           "PAN Card": k.pan_url,
-                          PCC: k.pcc_url,
+                          "Relative's ID Card": k.pcc_url,
                         };
                         return !!map[doc.label];
                       })();
@@ -1462,6 +1462,26 @@ export default function RiderDetailPage() {
                         <div className="text-sm mt-3 pt-3 border-t">
                           <span className="text-muted-foreground block mb-1">Notes:</span>
                           <span className="text-foreground">{assignmentChecklist.notes}</span>
+                        </div>
+                      )}
+                      {assignmentChecklist.rider_pictures && assignmentChecklist.rider_pictures.length > 0 && (
+                        <div className="text-sm mt-3 pt-3 border-t">
+                          <span className="text-muted-foreground block mb-2 font-medium">Handover Pictures:</span>
+                          <div className="flex gap-3 overflow-x-auto pb-2">
+                            {assignmentChecklist.rider_pictures.map((url: string, idx: number) => (
+                              <button
+                                key={idx}
+                                onClick={() => setLightboxUrl(url)}
+                                className="group relative shrink-0 h-24 w-24 rounded-md border overflow-hidden cursor-pointer hover:border-primary transition-colors"
+                              >
+                                {/* eslint-disable-next-line @next/next/no-img-element */}
+                                <img src={url} alt={`Handover ${idx + 1}`} className="h-full w-full object-cover" />
+                                <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
+                                  <Eye className="h-5 w-5 text-white" />
+                                </div>
+                              </button>
+                            ))}
+                          </div>
                         </div>
                       )}
                     </div>
@@ -1592,9 +1612,41 @@ export default function RiderDetailPage() {
 
               {/* ── Payment Records ── */}
               <div>
-                <h3 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground mb-3 flex items-center gap-2">
-                  <CreditCard className="h-4 w-4" /> Payment Records
-                </h3>
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
+                    <CreditCard className="h-4 w-4" /> Payment Records
+                  </h3>
+                  {payments.length > 0 && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="gap-1.5 text-xs h-7"
+                      onClick={() => {
+                        const headers = ["Date", "Type", "Amount (₹)", "Method", "Notes", "Status"];
+                        const rows = payments.map((p: PaymentRecord) => [
+                          p.payment_date ? format(new Date(p.payment_date), "yyyy-MM-dd") : "",
+                          (p.plan_type ?? "").replace(/_/g, " "),
+                          String(p.amount || 0),
+                          p.payment_method ?? "",
+                          (p.notes ?? "").replace(/"/g, '""'),
+                          p.status ?? "",
+                        ]);
+                        const csv = [headers, ...rows]
+                          .map(row => row.map(cell => `"${cell}"`).join(","))
+                          .join("\n");
+                        const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+                        const url = URL.createObjectURL(blob);
+                        const a = document.createElement("a");
+                        a.href = url;
+                        a.download = `payments-${rider.name.replace(/\s+/g, "-")}-${format(new Date(), "yyyy-MM-dd")}.csv`;
+                        a.click();
+                        URL.revokeObjectURL(url);
+                      }}
+                    >
+                      <Download className="h-3.5 w-3.5" /> Download CSV
+                    </Button>
+                  )}
+                </div>
                 <div className="rounded-lg border overflow-hidden">
                   <Table>
                     <TableHeader className="bg-slate-50">
@@ -1679,14 +1731,47 @@ export default function RiderDetailPage() {
           <div>
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-sm font-semibold text-slate-600">Service History</h3>
-              <Button
-                variant="outline"
-                size="sm"
-                className="gap-1.5 text-xs border-[#0D2D6B]/20 text-[#0D2D6B] hover:bg-[#0D2D6B]/5"
-                onClick={() => setServiceDialogOpen(true)}
-              >
-                <Plus className="h-3.5 w-3.5" /> Log Service Request
-              </Button>
+              <div className="flex items-center gap-2">
+                {serviceRequests.length > 0 && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="gap-1.5 text-xs h-7"
+                    onClick={() => {
+                      const headers = ["Date", "Issue Type", "Description / Parts", "Status", "Resolution Notes"];
+                      const rows = serviceRequests.map((sr: ServiceRequest) => [
+                        sr.created_at ? format(new Date(sr.created_at), "yyyy-MM-dd") : "",
+                        (sr.issue_description ?? "").replace(/"/g, '""'),
+                        (sr.parts_selected && Array.isArray(sr.parts_selected) && sr.parts_selected.length > 0
+                          ? `${sr.parts_selected.length} Part(s) - ₹${sr.total_parts_cost}`
+                          : "General Service").replace(/"/g, '""'),
+                        sr.status ?? "",
+                        (sr.resolution_notes ?? "").replace(/"/g, '""'),
+                      ]);
+                      const csv = [headers, ...rows]
+                        .map(row => row.map(cell => `"${cell}"`).join(","))
+                        .join("\n");
+                      const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+                      const url = URL.createObjectURL(blob);
+                      const a = document.createElement("a");
+                      a.href = url;
+                      a.download = `service-${rider.name.replace(/\s+/g, "-")}-${format(new Date(), "yyyy-MM-dd")}.csv`;
+                      a.click();
+                      URL.revokeObjectURL(url);
+                    }}
+                  >
+                    <Download className="h-3.5 w-3.5" /> Download CSV
+                  </Button>
+                )}
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="gap-1.5 text-xs border-[#0D2D6B]/20 text-[#0D2D6B] hover:bg-[#0D2D6B]/5"
+                  onClick={() => setServiceDialogOpen(true)}
+                >
+                  <Plus className="h-3.5 w-3.5" /> Log Service Request
+                </Button>
+              </div>
             </div>
             {serviceRequests.length === 0 ? (
               <div className="flex flex-col items-center gap-2 py-16 text-muted-foreground">

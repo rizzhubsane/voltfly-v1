@@ -35,7 +35,6 @@ import { Input } from "@/components/ui/input";
 import {
   Search,
   Download,
-  Eye,
   Users,
   ChevronLeft,
   ChevronRight,
@@ -768,17 +767,6 @@ export default function RidersPage() {
                           Onboard
                         </Button>
                       )}
-                      <Button
-                        asChild
-                        variant="ghost"
-                        size="sm"
-                        className="gap-1.5 text-primary hover:text-primary/80"
-                      >
-                        <Link href={`/dashboard/riders/${rider.id}`}>
-                          <Eye className="h-3.5 w-3.5" />
-                          View
-                        </Link>
-                      </Button>
                     </div>
                   </TableCell>
                 </TableRow>

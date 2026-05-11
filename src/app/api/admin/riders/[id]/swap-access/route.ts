@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
 import { verifyAdmin } from "@/lib/auth";
+import { logAdminActivity } from "@/lib/logAdminActivity";
 
 export const dynamic = "force-dynamic";
 
@@ -34,6 +35,7 @@ export async function POST(
     const { action, reason, driverId } = body;
     // Always derive adminId from the verified auth token — never trust the request body.
     const adminId = auth.admin.id;
+    const adminName = auth.admin.name ?? auth.admin.email ?? "Admin";
 
     if (!action || !driverId) {
       return NextResponse.json({ error: "Missing action or driverId" }, { status: 400 });
@@ -76,6 +78,18 @@ export async function POST(
         { status: 500 }
       );
     }
+
+    // 3. Log admin activity
+    await logAdminActivity(supabaseAdmin, {
+      admin_id: adminId,
+      admin_name: adminName,
+      action_type: action === "block" ? "battery_block" : "battery_unblock",
+      entity_type: "rider",
+      entity_id: riderId,
+      rider_id: riderId,
+      description: `${action === "block" ? "Blocked" : "Unblocked"} battery swap access. Reason: ${reason || "Manual admin action"}`,
+      metadata: { driver_id: driverId, new_status: newStatus, reason },
+    });
 
     // battery_events_log is written by the battery-block / battery-unblock Edge Functions (no duplicate row here).
 

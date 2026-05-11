@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
 import { verifyAdmin } from "@/lib/auth";
+import { logAdminActivity } from "@/lib/logAdminActivity";
 
 export async function POST(request: Request) {
   try {
@@ -122,6 +123,18 @@ export async function POST(request: Request) {
       });
     }
 
+
+    // 4. Log admin activity
+    await logAdminActivity(supabaseAdmin, {
+      admin_id: adminId,
+      admin_name: auth.admin.name ?? auth.admin.email ?? "Admin",
+      action_type: "payment_logged",
+      entity_type: "payment",
+      entity_id: payment.id,
+      rider_id: riderId,
+      description: `Logged ${planType} payment of ₹${amount} via ${method || "cash"}`,
+      metadata: { amount, plan_type: planType, method: method || "cash", paid_at: paidAt, new_wallet_balance: newWalletBalance },
+    });
 
     return NextResponse.json({
       success: true,

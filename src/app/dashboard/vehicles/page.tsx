@@ -87,7 +87,9 @@ async function fetchHubs(): Promise<Hub[]> {
 interface VehicleFormValues {
   vehicle_id: string;
   chassis_number: string;
+  vin_number: string;
   hub_id: string | null;
+  battery_operator: "batterysmart" | "indofast";
 }
 
 // ─── Components ─────────────────────────────────────────────────────────────
@@ -139,7 +141,9 @@ export default function VehiclesPage() {
   const [formValues, setFormValues] = useState<VehicleFormValues>({
     vehicle_id: "",
     chassis_number: "",
+    vin_number: "",
     hub_id: null,
+    battery_operator: "batterysmart",
   });
   const [formErrors, setFormErrors] = useState<Partial<Record<keyof VehicleFormValues, string>>>({});
 
@@ -159,8 +163,10 @@ export default function VehiclesPage() {
     mutationFn: async (values: VehicleFormValues) => {
       const payload = {
         vehicle_id: values.vehicle_id.trim() || null,
-        chassis_number: values.chassis_number.trim(),
+        chassis_number: values.battery_operator === "batterysmart" ? values.chassis_number.trim() : "",
+        vin_number: values.battery_operator === "indofast" ? values.vin_number.trim() : null,
         hub_id: values.hub_id || null,
+        battery_operator: values.battery_operator,
         ...(editingVehicle ? { id: editingVehicle.id } : {}),
       };
 
@@ -248,25 +254,37 @@ export default function VehiclesPage() {
   // ── Form helpers ──────────────────────────────────────────────────────────
   const validate = (values: VehicleFormValues): boolean => {
     const errors: Partial<Record<keyof VehicleFormValues, string>> = {};
-    if (!values.vehicle_id.trim()) errors.vehicle_id = "Vehicle ID is required (e.g. VFEL0001)";
-    if (!values.chassis_number.trim()) errors.chassis_number = "Chassis number is required";
+    if (values.battery_operator === "batterysmart") {
+      if (!values.vehicle_id.trim() || !/^VFEL\d+$/i.test(values.vehicle_id.trim()))
+        errors.vehicle_id = "BatterySmart Vehicle ID must be VFEL followed by digits (e.g. VFEL0001)";
+      if (!values.chassis_number.trim())
+        errors.chassis_number = "Chassis number is required for BatterySmart vehicles";
+    } else {
+      if (!values.vehicle_id.trim() || !/^SUN-\d+$/i.test(values.vehicle_id.trim()))
+        errors.vehicle_id = "IndoFast Vehicle ID must be SUN- followed by digits (e.g. SUN-0001)";
+      if (!values.vin_number.trim())
+        errors.vin_number = "VIN number is required for IndoFast vehicles";
+    }
     setFormErrors(errors);
     return Object.keys(errors).length === 0;
   };
 
   const openAdd = () => {
     setEditingVehicle(null);
-    setFormValues({ vehicle_id: "", chassis_number: "", hub_id: isSuperAdmin ? null : adminHubId });
+    setFormValues({ vehicle_id: "", chassis_number: "", vin_number: "", hub_id: isSuperAdmin ? null : adminHubId, battery_operator: "batterysmart" });
     setFormErrors({});
     setDrawerOpen(true);
   };
 
   const openEdit = (vehicle: VehicleWithDetails) => {
     setEditingVehicle(vehicle);
+    const op = ((vehicle as unknown as Record<string, unknown>).battery_operator as string) === "indofast" ? "indofast" : "batterysmart";
     setFormValues({
       vehicle_id: vehicle.vehicle_id || "",
       chassis_number: vehicle.chassis_number || "",
+      vin_number: ((vehicle as unknown as Record<string, unknown>).vin_number as string) || "",
       hub_id: vehicle.hub_id,
+      battery_operator: op,
     });
     setFormErrors({});
     setDrawerOpen(true);
@@ -365,7 +383,8 @@ export default function VehiclesPage() {
             <TableHeader className="bg-slate-50/50">
               <TableRow>
                 <TableHead>Vehicle ID</TableHead>
-                <TableHead>Chassis Number</TableHead>
+                <TableHead>Operator</TableHead>
+                <TableHead>Identifier</TableHead>
                 <TableHead>Hub</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead>Assigned Rider</TableHead>
@@ -390,7 +409,32 @@ export default function VehiclesPage() {
                       {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
                       {(vehicle as any).vehicle_id || "—"}
                     </TableCell>
-                    <TableCell className="font-mono text-xs">{vehicle.chassis_number}</TableCell>
+                    <TableCell>
+                      {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
+                      {(vehicle as any).battery_operator === "indofast" ? (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-orange-100 text-orange-700 border border-orange-200">
+                          ⚡ IndoFast
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-100 text-blue-700 border border-blue-200">
+                          🔋 BatterySmart
+                        </span>
+                      )}
+                    </TableCell>
+                    <TableCell className="font-mono text-xs">
+                      {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
+                      {(vehicle as any).battery_operator === "indofast" ? (
+                        <div className="flex flex-col gap-0.5">
+                          {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
+                          <span className="font-mono text-xs font-medium">{(vehicle as any).vin_number || "—"}</span>
+                          {vehicle.chassis_number && (
+                            <span className="text-[10px] text-slate-400 font-normal">Reg: {vehicle.chassis_number}</span>
+                          )}
+                        </div>
+                      ) : (
+                        vehicle.chassis_number || "—"
+                      )}
+                    </TableCell>
                     <TableCell className="text-sm">{vehicle.hubs?.name || "—"}</TableCell>
                     <TableCell>
                       {vehicle.assigned_rider_id ? (
@@ -456,12 +500,41 @@ export default function VehiclesPage() {
               {editingVehicle ? "Edit Vehicle" : "Add New Vehicle"}
             </SheetTitle>
             <SheetDescription>
-              Only <strong>Vehicle ID</strong> and <strong>Chassis Number</strong> are required.
+              Select the battery operator first — it determines the required Vehicle ID format and identifier.
             </SheetDescription>
           </SheetHeader>
 
           <form onSubmit={onSubmit} className="space-y-6">
             <div className="space-y-5">
+              {/* Battery Operator */}
+              <div className="space-y-2">
+                <Label className="text-xs font-bold uppercase tracking-wider text-slate-500 flex items-center gap-2">
+                  🔋 Battery Operator <span className="text-destructive">*</span>
+                </Label>
+                <Select
+                  value={formValues.battery_operator}
+                  onValueChange={(val) => setFormValues((p) => ({
+                    ...p,
+                    battery_operator: val as "batterysmart" | "indofast",
+                    vehicle_id: "",
+                    chassis_number: "",
+                    vin_number: "",
+                  }))}
+                >
+                  <SelectTrigger className="h-10 rounded-xl border-slate-200 bg-white">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent className="rounded-xl">
+                    <SelectItem value="batterysmart" className="rounded-lg">
+                      🔋 BatterySmart (VFEL prefix · Upgrid API)
+                    </SelectItem>
+                    <SelectItem value="indofast" className="rounded-lg">
+                      ⚡ IndoFast (SUN- prefix · No API)
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
               {/* Vehicle ID */}
               <div className="space-y-2">
                 <Label className="text-xs font-bold uppercase tracking-wider text-slate-500 flex items-center gap-2">
@@ -471,37 +544,84 @@ export default function VehiclesPage() {
                 <div className="relative">
                   <Fingerprint className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400 z-10" />
                   <Input
-                    placeholder="e.g. VFEL0001"
+                    placeholder={formValues.battery_operator === "indofast" ? "e.g. SUN-0001" : "e.g. VFEL0001"}
                     value={formValues.vehicle_id}
                     onChange={(e) => setFormValues((p) => ({ ...p, vehicle_id: e.target.value.toUpperCase() }))}
                     className="font-mono pl-9 h-10 rounded-xl border-slate-200"
                   />
                 </div>
-                <p className="text-[10px] text-muted-foreground font-medium uppercase tracking-tight">Format: VFELXXXX</p>
+                <p className="text-[10px] text-muted-foreground font-medium uppercase tracking-tight">
+                  Format: {formValues.battery_operator === "indofast" ? "SUN-XXXX" : "VFELXXXX"}
+                </p>
                 {formErrors.vehicle_id && (
                   <p className="text-xs font-medium text-destructive">{formErrors.vehicle_id}</p>
                 )}
               </div>
 
-              {/* Chassis Number */}
-              <div className="space-y-2">
-                <Label className="text-xs font-bold uppercase tracking-wider text-slate-500 flex items-center gap-2">
-                  <ScanBarcode className="h-3 w-3" />
-                  Chassis Number <span className="text-destructive">*</span>
-                </Label>
-                <div className="relative">
-                  <ScanBarcode className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400 z-10" />
-                  <Input
-                    placeholder="e.g. ADCSYSL250902943"
-                    value={formValues.chassis_number}
-                    onChange={(e) => setFormValues((p) => ({ ...p, chassis_number: e.target.value.toUpperCase() }))}
-                    className="font-mono pl-9 h-10 rounded-xl border-slate-200"
-                  />
+              {/* Chassis Number — BatterySmart only */}
+              {formValues.battery_operator === "batterysmart" && (
+                <div className="space-y-2">
+                  <Label className="text-xs font-bold uppercase tracking-wider text-slate-500 flex items-center gap-2">
+                    <ScanBarcode className="h-3 w-3" />
+                    Chassis Number <span className="text-destructive">*</span>
+                  </Label>
+                  <div className="relative">
+                    <ScanBarcode className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400 z-10" />
+                    <Input
+                      placeholder="e.g. ADCSYSL250902943"
+                      value={formValues.chassis_number}
+                      onChange={(e) => setFormValues((p) => ({ ...p, chassis_number: e.target.value.toUpperCase() }))}
+                      className="font-mono pl-9 h-10 rounded-xl border-slate-200"
+                    />
+                  </div>
+                  {formErrors.chassis_number && (
+                    <p className="text-xs font-medium text-destructive">{formErrors.chassis_number}</p>
+                  )}
                 </div>
-                {formErrors.chassis_number && (
-                  <p className="text-xs font-medium text-destructive">{formErrors.chassis_number}</p>
-                )}
-              </div>
+              )}
+
+              {/* VIN Number + Registration Number — IndoFast only */}
+              {formValues.battery_operator === "indofast" && (
+                <>
+                  <div className="space-y-2">
+                    <Label className="text-xs font-bold uppercase tracking-wider text-slate-500 flex items-center gap-2">
+                      <ScanBarcode className="h-3 w-3" />
+                      VIN Number <span className="text-destructive">*</span>
+                    </Label>
+                    <div className="relative">
+                      <ScanBarcode className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400 z-10" />
+                      <Input
+                        placeholder="e.g. P5BWM10EL23C00094"
+                        value={formValues.vin_number}
+                        onChange={(e) => setFormValues((p) => ({ ...p, vin_number: e.target.value.toUpperCase() }))}
+                        className="font-mono pl-9 h-10 rounded-xl border-slate-200"
+                      />
+                    </div>
+                    {formErrors.vin_number && (
+                      <p className="text-xs font-medium text-destructive">{formErrors.vin_number}</p>
+                    )}
+                    <p className="text-[10px] text-muted-foreground">Vehicle Identification Number (17 characters). Last 4 digits auto-match the SUN- ID.</p>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label className="text-xs font-bold uppercase tracking-wider text-slate-500 flex items-center gap-2">
+                      <ScanBarcode className="h-3 w-3" />
+                      Registration Number <span className="text-slate-400">(optional)</span>
+                    </Label>
+                    <div className="relative">
+                      <ScanBarcode className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400 z-10" />
+                      <Input
+                        placeholder="e.g. EB17916749"
+                        value={formValues.chassis_number}
+                        onChange={(e) => setFormValues((p) => ({ ...p, chassis_number: e.target.value.toUpperCase() }))}
+                        className="font-mono pl-9 h-10 rounded-xl border-slate-200"
+                      />
+                    </div>
+                    <p className="text-[10px] text-muted-foreground">Vehicle registration number from the RC document.</p>
+                  </div>
+                </>
+              )}
+
 
               {/* Hub — only show when super admin */}
               {isSuperAdmin && (

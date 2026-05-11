@@ -9,6 +9,48 @@ export type Json =
 export interface Database {
   public: {
     Tables: {
+      admin_activity_log: {
+        Row: {
+          id: string
+          admin_id: string | null
+          admin_name: string | null
+          action_type: string
+          entity_type: string | null
+          entity_id: string | null
+          rider_id: string | null
+          description: string | null
+          metadata: Record<string, unknown> | null
+          ip_address: string | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          admin_id?: string | null
+          admin_name?: string | null
+          action_type: string
+          entity_type?: string | null
+          entity_id?: string | null
+          rider_id?: string | null
+          description?: string | null
+          metadata?: Record<string, unknown> | null
+          ip_address?: string | null
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          admin_id?: string | null
+          admin_name?: string | null
+          action_type?: string
+          entity_type?: string | null
+          entity_id?: string | null
+          rider_id?: string | null
+          description?: string | null
+          metadata?: Record<string, unknown> | null
+          ip_address?: string | null
+          created_at?: string
+        }
+        Relationships: []
+      }
       hubs: {
         Row: {
           id: string
@@ -243,8 +285,10 @@ export interface Database {
       vehicles: {
         Row: {
           id: string
-          vehicle_id: string | null  // format: VFELXXXX
-          chassis_number: string
+          vehicle_id: string | null  // format: VFELXXXX or SUN-XXXX
+          chassis_number: string | null
+          vin_number: string | null   // for IndoFast vehicles
+          battery_operator: string | null  // 'batterysmart' | 'indofast'
           hub_id: string | null
           assigned_rider_id: string | null
           assigned_at: string | null
@@ -253,7 +297,9 @@ export interface Database {
         Insert: {
           id?: string
           vehicle_id?: string | null
-          chassis_number: string
+          chassis_number?: string | null
+          vin_number?: string | null
+          battery_operator?: string | null
           hub_id?: string | null
           assigned_rider_id?: string | null
           assigned_at?: string | null
@@ -262,7 +308,9 @@ export interface Database {
         Update: {
           id?: string
           vehicle_id?: string | null
-          chassis_number?: string
+          chassis_number?: string | null
+          vin_number?: string | null
+          battery_operator?: string | null
           hub_id?: string | null
           assigned_rider_id?: string | null
           assigned_at?: string | null
@@ -306,6 +354,7 @@ export interface Database {
           notes: string | null
           recorded_by: string | null
           created_at: string | null
+          rider_pictures: string[] | null
         }
         Insert: {
           id?: string
@@ -328,6 +377,7 @@ export interface Database {
           notes?: string | null
           recorded_by?: string | null
           created_at?: string | null
+          rider_pictures?: string[] | null
         }
         Update: {
           charger?: boolean
@@ -344,6 +394,7 @@ export interface Database {
           tyres?: boolean
           tools_kit?: boolean
           notes?: string | null
+          rider_pictures?: string[] | null
         }
         Relationships: [
           {
