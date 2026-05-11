@@ -170,17 +170,33 @@ export async function POST(request: Request) {
     const effectiveHubId = hub_id || null;
 
     // Check for duplicate phone number
-    const { data: existing } = await supabaseAdmin
+    const { data: existingPhone } = await supabaseAdmin
       .from("riders")
       .select("id")
       .eq("phone_1", phone_1.trim())
       .maybeSingle();
 
-    if (existing) {
+    if (existingPhone) {
       return NextResponse.json(
         { error: "A rider with this phone number already exists" },
         { status: 409 }
       );
+    }
+
+    // Check for duplicate driver_id
+    if (driver_id?.trim()) {
+      const { data: existingDriverId } = await supabaseAdmin
+        .from("riders")
+        .select("id")
+        .eq("driver_id", driver_id.trim())
+        .maybeSingle();
+
+      if (existingDriverId) {
+        return NextResponse.json(
+          { error: "A rider with this UpGrid Driver ID already exists" },
+          { status: 409 }
+        );
+      }
     }
 
     const riderInsert: Database["public"]["Tables"]["riders"]["Insert"] = {
@@ -225,8 +241,13 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ success: true, rider });
   } catch (error: unknown) {
-    const message = error instanceof Error ? error.message : "Unknown error";
-    console.error("[add-rider] Error:", message);
+    const message =
+      typeof error === "object" && error !== null && "message" in error
+        ? String((error as Record<string, unknown>).message)
+        : error instanceof Error
+          ? error.message
+          : "Unknown error";
+    console.error("[add-rider] Error:", message, error);
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }
