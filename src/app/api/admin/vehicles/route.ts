@@ -257,6 +257,38 @@ export async function POST(request: Request) {
       const adminName = auth.admin.name || auth.admin.email || "Admin";
 
       if (pairingDriverId && vehicleData.assigned_rider_id) {
+        // ── Guard 1: Clear driver_id from any rider who already holds it ──────
+        // This prevents the unique constraint violation on riders.driver_id
+        const { data: conflictingRiders } = await supabaseAdmin
+          .from("riders")
+          .select("id, name")
+          .eq("driver_id", pairingDriverId)
+          .neq("id", vehicleData.assigned_rider_id as string);
+
+        if (conflictingRiders && conflictingRiders.length > 0) {
+          await supabaseAdmin
+            .from("riders")
+            .update({ driver_id: null })
+            .in("id", conflictingRiders.map((r) => r.id));
+          console.log(`[vehicles] Cleared driver_id ${pairingDriverId} from ${conflictingRiders.map(r => r.name).join(", ")} before reassignment`);
+        }
+
+        // ── Guard 2: Unassign any other vehicle this rider already has ────────
+        // This prevents a rider from having two vehicles assigned at once
+        const { data: existingAssigned } = await supabaseAdmin
+          .from("vehicles")
+          .select("id, vehicle_id")
+          .eq("assigned_rider_id", vehicleData.assigned_rider_id as string)
+          .neq("id", id);
+
+        if (existingAssigned && existingAssigned.length > 0) {
+          await supabaseAdmin
+            .from("vehicles")
+            .update({ assigned_rider_id: null, assigned_at: null })
+            .in("id", existingAssigned.map((v) => v.id));
+          console.log(`[vehicles] Unassigned previous vehicles ${existingAssigned.map(v => v.vehicle_id).join(", ")} from rider before new assignment`);
+        }
+
         // Fetch existing notes to prevent overwrite
         const { data: riderData } = await supabaseAdmin
           .from("riders")
