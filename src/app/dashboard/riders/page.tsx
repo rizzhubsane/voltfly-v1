@@ -2,7 +2,7 @@
 import { adminFetch } from "@/lib/adminFetch";
 import { ExpandableNote } from "@/components/shared/ExpandableNote";
 
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, useRef, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
 import type { RiderWithHub } from "@/lib/types";
@@ -36,8 +36,6 @@ import {
   Search,
   Download,
   Users,
-  ChevronLeft,
-  ChevronRight,
   Filter,
   UserPlus,
   Plus,
@@ -316,7 +314,8 @@ export default function RidersPage() {
   const [search, setSearch] = useState("");
   const [hubFilter, setHubFilter] = useState("All");
   const [statusFilter, setStatusFilter] = useState("all");
-  const [page, setPage] = useState(1);
+  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
+  const sentinelRef = useRef<HTMLDivElement>(null);
 
   // ── Offline Onboard Drawer ───────────────────────────────────────────────
   const [onboardOpen, setOnboardOpen] = useState(false);
@@ -402,15 +401,31 @@ export default function RidersPage() {
     return list;
   }, [allRiders, search, hubFilter, statusFilter, isSuperAdmin]);
 
-  // ── Pagination ───────────────────────────────────────────────────────────
-  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
-  const paginated = useMemo(
-    () => filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE),
-    [filtered, page]
+  // ── Infinite scroll slice ────────────────────────────────────────────────
+  const visible = useMemo(
+    () => filtered.slice(0, visibleCount),
+    [filtered, visibleCount]
   );
+  const hasMore = visibleCount < filtered.length;
 
-  // Reset page when filters change
-  const resetPage = useCallback(() => setPage(1), []);
+  // Reset visible count when filters change
+  const resetPage = useCallback(() => setVisibleCount(PAGE_SIZE), []);
+
+  // IntersectionObserver sentinel — load more when bottom row is in view
+  useEffect(() => {
+    const el = sentinelRef.current;
+    if (!el) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting && hasMore) {
+          setVisibleCount((c) => c + PAGE_SIZE);
+        }
+      },
+      { threshold: 0.1 }
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [hasMore]);
 
   // ── Loading state ────────────────────────────────────────────────────────
   if (isLoading) {
@@ -587,7 +602,7 @@ export default function RidersPage() {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {paginated.length === 0 ? (
+            {visible.length === 0 ? (
               <TableRow>
                 <TableCell
                   colSpan={10}
@@ -603,7 +618,7 @@ export default function RidersPage() {
                 </TableCell>
               </TableRow>
             ) : (
-              paginated.map((rider) => (
+              visible.map((rider) => (
                 <TableRow
                   key={rider.id}
                   className="hover:bg-slate-50/80 transition-colors"
@@ -776,38 +791,14 @@ export default function RidersPage() {
         </Table>
       </div>
 
-      {/* ── Pagination ───────────────────────────────────────────────────── */}
-      {totalPages > 1 && (
-        <div className="flex items-center justify-between pt-2">
-          <p className="text-sm text-muted-foreground">
-            Page{" "}
-            <span className="font-medium text-foreground">{page}</span> of{" "}
-            <span className="font-medium text-foreground">{totalPages}</span>
-          </p>
-          <div className="flex items-center gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={page <= 1}
-              onClick={() => setPage((p) => Math.max(1, p - 1))}
-              className="gap-1"
-            >
-              <ChevronLeft className="h-4 w-4" />
-              Previous
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={page >= totalPages}
-              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-              className="gap-1"
-            >
-              Next
-              <ChevronRight className="h-4 w-4" />
-            </Button>
-          </div>
-        </div>
-      )}
+      {/* ── Infinite scroll sentinel ──────────────────────────────────────── */}
+      <div ref={sentinelRef} className="flex items-center justify-center py-4">
+        {hasMore ? (
+          <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+        ) : filtered.length > PAGE_SIZE ? (
+          <p className="text-xs text-muted-foreground">All {filtered.length} riders loaded</p>
+        ) : null}
+      </div>
 
       {/* Offline Onboard Drawer */}
       <Sheet open={onboardOpen} onOpenChange={setOnboardOpen}>
