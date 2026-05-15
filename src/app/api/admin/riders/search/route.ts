@@ -6,8 +6,9 @@ export const dynamic = "force-dynamic";
 
 /**
  * GET /api/admin/riders/search?q=...
- * 
- * Allows admin to search for riders by name or phone using service role.
+ *
+ * Searches riders by name, phone, or assigned vehicle ID.
+ * Returns { id, name, phone_1, vehicle_id } for each match.
  */
 export async function GET(request: Request) {
   try {
@@ -28,35 +29,69 @@ export async function GET(request: Request) {
       return NextResponse.json({ riders: [] });
     }
 
-    // Cap length to prevent excessive DB load from very long search strings.
     const term = query.trim().slice(0, 100);
 
-    // Use separate chained ilike filters instead of string-interpolated .or() to avoid
-    // PostgREST filter injection. Supabase's typed client parameterises these safely.
-    const { data: byName, error: nameErr } = await supabaseAdmin
-      .from("riders")
-      .select("id, name, phone_1")
-      .ilike("name", `%${term}%`)
-      .limit(10);
+    // Search by name, phone, and vehicle ID in parallel
+    const [nameRes, phoneRes, vehicleRes] = await Promise.all([
+      supabaseAdmin
+        .from("riders")
+        .select("id, name, phone_1")
+        .ilike("name", `%${term}%`)
+        .limit(10),
 
-    const { data: byPhone, error: phoneErr } = await supabaseAdmin
-      .from("riders")
-      .select("id, name, phone_1")
-      .ilike("phone_1", `%${term}%`)
-      .limit(10);
+      supabaseAdmin
+        .from("riders")
+        .select("id, name, phone_1")
+        .ilike("phone_1", `%${term}%`)
+        .limit(10),
 
-    if (nameErr) throw nameErr;
-    if (phoneErr) throw phoneErr;
+      // Search via vehicles table — find riders by assigned vehicle ID
+      supabaseAdmin
+        .from("vehicles")
+        .select("assigned_rider_id, vehicle_id")
+        .ilike("vehicle_id", `%${term}%`)
+        .not("assigned_rider_id", "is", null)
+        .limit(10),
+    ]);
 
-    // Merge and deduplicate by id.
+    if (nameRes.error) throw nameRes.error;
+    if (phoneRes.error) throw phoneRes.error;
+
+    // Fetch full rider details for vehicle matches
+    let byVehicle: { id: string; name: string; phone_1: string; vehicle_id: string }[] = [];
+    if (!vehicleRes.error && vehicleRes.data && vehicleRes.data.length > 0) {
+      const riderIds = vehicleRes.data.map((v) => v.assigned_rider_id as string);
+      const { data: vRiders } = await supabaseAdmin
+        .from("riders")
+        .select("id, name, phone_1")
+        .in("id", riderIds)
+        .limit(10);
+
+      if (vRiders) {
+        byVehicle = vRiders.map((r) => {
+          const veh = vehicleRes.data.find((v) => v.assigned_rider_id === r.id);
+          return { ...r, vehicle_id: veh?.vehicle_id ?? "" };
+        });
+      }
+    }
+
+    // Merge and deduplicate — vehicle matches shown first
     const seen = new Set<string>();
-    const riders = [...(byName ?? []), ...(byPhone ?? [])].filter((r) => {
-      if (seen.has(r.id)) return false;
-      seen.add(r.id);
-      return true;
-    }).slice(0, 10);
+    const riders = [...byVehicle, ...(nameRes.data ?? []), ...(phoneRes.data ?? [])]
+      .map((r) => ({
+        id: r.id,
+        name: r.name,
+        phone_1: r.phone_1,
+        vehicle_id: (r as { vehicle_id?: string }).vehicle_id ?? null,
+      }))
+      .filter((r) => {
+        if (seen.has(r.id)) return false;
+        seen.add(r.id);
+        return true;
+      })
+      .slice(0, 10);
 
-    return NextResponse.json({ riders: riders || [] });
+    return NextResponse.json({ riders });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "Unknown error";
     return NextResponse.json({ error: message }, { status: 500 });

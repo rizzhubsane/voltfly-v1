@@ -75,7 +75,7 @@ interface LogCashPaymentDrawerProps {
 export function LogCashPaymentDrawer({ adminId, onSuccess, riderId, riderName }: LogCashPaymentDrawerProps) {
   const isLockedToRider = Boolean(riderId); // true when opened from a rider profile
   const [riderSearch, setRiderSearch] = useState("");
-  const [riders, setRiders] = useState<{ id: string; name: string; phone_1: string }[]>([]);
+  const [riders, setRiders] = useState<{ id: string; name: string; phone_1: string; vehicle_id: string | null }[]>([]);
   const [isSearching, setIsSearching] = useState(false);
   const [selectedRider, setSelectedRider] = useState<{ id: string; name: string } | null>(
     riderId && riderName ? { id: riderId, name: riderName } : null
@@ -257,7 +257,7 @@ export function LogCashPaymentDrawer({ adminId, onSuccess, riderId, riderName }:
                 <div className="relative">
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                   <Input
-                    placeholder="Search by name or phone..."
+                    placeholder="Search by name, phone or vehicle ID..."
                     className="pl-9 h-10 rounded-xl"
                     value={riderSearch}
                     onChange={(e) => setRiderSearch(e.target.value)}
@@ -271,11 +271,18 @@ export function LogCashPaymentDrawer({ adminId, onSuccess, riderId, riderName }:
                         <button
                           key={r.id}
                           type="button"
-                          className="w-full text-left px-3 py-2 hover:bg-slate-50 rounded-lg transition-colors flex flex-col"
+                          className="w-full text-left px-3 py-2 hover:bg-slate-50 rounded-lg transition-colors flex items-center gap-3"
                           onClick={() => handleSelectRider(r)}
                         >
-                          <div className="font-semibold text-sm text-[#0D2D6B]">{r.name}</div>
-                          <div className="text-[10px] text-muted-foreground font-medium">{r.phone_1}</div>
+                          <div className="flex-1 min-w-0">
+                            <div className="font-semibold text-sm text-[#0D2D6B] truncate">{r.name}</div>
+                            <div className="text-[10px] text-muted-foreground font-medium">{r.phone_1}</div>
+                          </div>
+                          {r.vehicle_id && (
+                            <span className="shrink-0 inline-flex items-center rounded-md bg-blue-50 border border-blue-200 px-2 py-0.5 text-[10px] font-semibold text-blue-700">
+                              {r.vehicle_id}
+                            </span>
+                          )}
                         </button>
                       ))}
                     </div>
