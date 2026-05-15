@@ -391,7 +391,7 @@ export default function RidersPage() {
     error,
   } = useQuery({
     queryKey: ["riders", hub_id],
-    queryFn: () => fetchRiders(isSuperAdmin ? null : hub_id),
+    queryFn: () => fetchRiders(null),  // hub_id is metadata only — no data isolation by hub
     staleTime: 0,
     gcTime: 0,
   });

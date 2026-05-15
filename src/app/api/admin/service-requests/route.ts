@@ -19,21 +19,11 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: "Missing admin config" }, { status: 500 });
     }
 
-    // Hub managers only see service requests from riders in their hub.
+    // hub_id is metadata only — all admins see all service requests
     let serviceQuery = supabaseAdmin
       .from("service_requests")
       .select(`*, riders(name, phone_1)`)
       .order("created_at", { ascending: false });
-
-    if (auth.admin.role === "hub_manager" && auth.admin.hub_id) {
-      const { data: hubRiders } = await supabaseAdmin
-        .from("riders")
-        .select("id")
-        .eq("hub_id", auth.admin.hub_id);
-      const hubRiderIds = (hubRiders ?? []).map((r) => r.id);
-      if (hubRiderIds.length === 0) return NextResponse.json({ requests: [] });
-      serviceQuery = serviceQuery.in("rider_id", hubRiderIds);
-    }
 
     const { data: requests, error } = await serviceQuery;
 

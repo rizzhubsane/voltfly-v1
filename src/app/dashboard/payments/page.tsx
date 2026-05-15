@@ -197,6 +197,7 @@ async function fetchHubs(): Promise<HubItem[]> {
 
 export default function PaymentsPage() {
   const { adminId, hub_id, role } = useAdmin();
+  const isSuperAdmin = role === "super_admin";
   const queryClient = useQueryClient();
 
   // ── State ────────────────────────────────────────────────────────────────
@@ -279,10 +280,9 @@ export default function PaymentsPage() {
 
     payments.forEach(p => {
       if (p.status !== "paid") return;
-      const effectiveHub = role === "hub_manager" && hub_id ? hub_id : hubFilter;
       const matchesHub =
-        effectiveHub === "all" ||
-        (p.riders?.hub_id != null && p.riders.hub_id === effectiveHub);
+        hubFilter === "all" ||
+        (p.riders?.hub_id != null && p.riders.hub_id === hubFilter);
         
       if (!matchesHub) return;
 
@@ -306,12 +306,10 @@ export default function PaymentsPage() {
       const matchesMethod = methodFilter === "all" || p.method === methodFilter;
       const matchesStatus = statusFilter === "all" || p.status === statusFilter;
 
-      // Hub filter: hub_manager locked to their hub; otherwise use dropdown.
-      // Riders with hub_id:null must pass when effectiveHub is 'all'.
-      const effectiveHub = role === "hub_manager" && hub_id ? hub_id : hubFilter;
+      // Hub filter: use dropdown for all roles (hub_id is metadata only)
       const matchesHub =
-        effectiveHub === "all" ||
-        (p.riders?.hub_id != null && p.riders.hub_id === effectiveHub);
+        hubFilter === "all" ||
+        (p.riders?.hub_id != null && p.riders.hub_id === hubFilter);
 
       // Date: Razorpay payments don't set payment_date — fall back to paid_at then created_at
       const rawDate = p.paid_at ?? p.created_at;
@@ -370,22 +368,24 @@ export default function PaymentsPage() {
           </p>
         </div>
         <div className="flex gap-2">
-          <Sheet open={logCashOpen} onOpenChange={setLogCashOpen}>
-            <SheetTrigger asChild>
-              <Button className="bg-[#0D2D6B] hover:bg-[#0D2D6B]/90 gap-2">
-                <Plus className="h-4 w-4" />
-                Log Cash Payment
-              </Button>
-            </SheetTrigger>
-          <LogCashPaymentDrawer 
-              adminId={adminId} 
-              onSuccess={() => {
-                setLogCashOpen(false);
-                queryClient.invalidateQueries({ queryKey: ["all-payments"] });
-                queryClient.invalidateQueries({ queryKey: ["overdue-riders"] });
-              }} 
-            />
-          </Sheet>
+          {isSuperAdmin && (
+            <Sheet open={logCashOpen} onOpenChange={setLogCashOpen}>
+              <SheetTrigger asChild>
+                <Button className="bg-[#0D2D6B] hover:bg-[#0D2D6B]/90 gap-2">
+                  <Plus className="h-4 w-4" />
+                  Log Cash Payment
+                </Button>
+              </SheetTrigger>
+            <LogCashPaymentDrawer 
+                adminId={adminId} 
+                onSuccess={() => {
+                  setLogCashOpen(false);
+                  queryClient.invalidateQueries({ queryKey: ["all-payments"] });
+                  queryClient.invalidateQueries({ queryKey: ["overdue-riders"] });
+                }} 
+              />
+            </Sheet>
+          )}
         </div>
       </div>
 
@@ -456,9 +456,8 @@ export default function PaymentsPage() {
             </div>
             <div className="flex items-center gap-2 flex-wrap justify-end">
               <Select
-                value={role === "hub_manager" && hub_id ? hub_id : hubFilter}
+                value={hubFilter}
                 onValueChange={(val) => setHubFilter(val)}
-                disabled={role === "hub_manager"}
               >
                 <SelectTrigger className="h-9 w-[160px]">
                   <SelectValue placeholder="All hubs" />

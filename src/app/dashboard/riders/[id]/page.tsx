@@ -1601,9 +1601,11 @@ export default function RiderDetailPage() {
                   )}
                 </div>
                 <div className="flex flex-wrap gap-2">
-                  <Button size="sm" className="gap-1.5 bg-[#0D2D6B] hover:bg-[#0D2D6B]/90" onClick={() => setPaymentDrawerOpen(true)}>
-                    <Plus className="h-3.5 w-3.5" /> Log Cash Payment
-                  </Button>
+                  {isSuperAdmin && (
+                    <Button size="sm" className="gap-1.5 bg-[#0D2D6B] hover:bg-[#0D2D6B]/90" onClick={() => setPaymentDrawerOpen(true)}>
+                      <Plus className="h-3.5 w-3.5" /> Log Cash Payment
+                    </Button>
+                  )}
                   <Button size="sm" variant="outline" className="gap-1.5" onClick={() => { setWalletAdjAmount(""); setWalletAdjReason(""); setWalletAdjOpen(true); }}>
                     <Pencil className="h-3.5 w-3.5" /> Adjust Wallet
                   </Button>

@@ -26,18 +26,8 @@ export async function GET(request: Request) {
     // payment_method does NOT exist in security_deposits.
     console.log("[deposits/route] Starting security_deposits query...");
 
-    // Hub managers only see deposits for riders in their hub.
-    let hubRiderIds: string[] | null = null;
-    if (auth.admin.role === "hub_manager" && auth.admin.hub_id) {
-      const { data: hubRiders } = await supabaseAdmin
-        .from("riders")
-        .select("id")
-        .eq("hub_id", auth.admin.hub_id);
-      hubRiderIds = (hubRiders ?? []).map((r) => r.id);
-      if (hubRiderIds.length === 0) return NextResponse.json({ deposits: [] });
-    }
-
-    let depositsQuery = supabaseAdmin
+    // hub_id is metadata only — all admins see all deposits
+    const { data: deposits, error: depositsErr } = await supabaseAdmin
       .from("security_deposits")
       .select(`
         id, rider_id, amount_paid, status,
@@ -46,9 +36,6 @@ export async function GET(request: Request) {
         created_at, refunded_at
       `)
       .order("created_at", { ascending: false });
-    if (hubRiderIds) depositsQuery = depositsQuery.in("rider_id", hubRiderIds);
-
-    const { data: deposits, error: depositsErr } = await depositsQuery;
 
     if (depositsErr) {
       console.error("[deposits/route] Query FAILED:", depositsErr.message, depositsErr.code);
