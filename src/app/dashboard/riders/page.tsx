@@ -43,6 +43,10 @@ import {
   RefreshCw,
   Loader2,
   AlertTriangle,
+  Trash2,
+  Unlink,
+  CheckSquare,
+  X,
 } from "lucide-react";
 
 // ─── Constants ───────────────────────────────────────────────────────────────
@@ -317,6 +321,56 @@ export default function RidersPage() {
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
   const sentinelRef = useRef<HTMLDivElement>(null);
 
+  // ── Bulk selection ────────────────────────────────────────────────────────
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkLoading, setBulkLoading] = useState(false);
+  const [bulkConfirm, setBulkConfirm] = useState<null | "delete" | "block_swap" | "unblock_swap" | "unassign_vehicle">(null);
+
+  const toggleSelect = (id: string) =>
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+
+  const clearSelection = () => setSelectedIds(new Set());
+
+  const executeBulkAction = async (action: string) => {
+    setBulkLoading(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const res = await adminFetch("/api/admin/riders/bulk", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session?.access_token}`,
+        },
+        body: JSON.stringify({
+          action,
+          riderIds: Array.from(selectedIds),
+          reason: action === "block_swap" ? "Bulk block by admin" : undefined,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Bulk action failed");
+      const count = data.count ?? selectedIds.size;
+      const labels: Record<string, string> = {
+        unassign_vehicle: "Unassigned vehicle & driver ID from",
+        block_swap: "Blocked swap access for",
+        unblock_swap: "Unblocked swap access for",
+        delete: "Deleted",
+      };
+      toast.success(`${labels[action] ?? "Done for"} ${count} rider(s)`);
+      clearSelection();
+      queryClient.invalidateQueries({ queryKey: ["riders"] });
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "Action failed");
+    } finally {
+      setBulkLoading(false);
+      setBulkConfirm(null);
+    }
+  };
+
   // ── Offline Onboard Drawer ───────────────────────────────────────────────
   const [onboardOpen, setOnboardOpen] = useState(false);
   const [onboardRider, setOnboardRider] = useState<{ id: string; name: string } | null>(null);
@@ -407,6 +461,18 @@ export default function RidersPage() {
     [filtered, visibleCount]
   );
   const hasMore = visibleCount < filtered.length;
+
+  // Select-all is computed after visible is known
+  const allVisibleSelected =
+    visible.length > 0 && visible.every((r) => selectedIds.has(r.id));
+
+  const toggleSelectAll = () => {
+    if (allVisibleSelected) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(visible.map((r) => r.id)));
+    }
+  };
 
   // Reset visible count when filters change
   const resetPage = useCallback(() => setVisibleCount(PAGE_SIZE), []);
@@ -588,6 +654,16 @@ export default function RidersPage() {
         <Table>
           <TableHeader className="bg-slate-50">
             <TableRow>
+              {/* Select-all checkbox */}
+              <TableHead className="w-10">
+                <input
+                  type="checkbox"
+                  className="h-4 w-4 rounded border-slate-300 accent-[#0D2D6B] cursor-pointer"
+                  checked={allVisibleSelected}
+                  onChange={toggleSelectAll}
+                  title={allVisibleSelected ? "Deselect all" : "Select all visible"}
+                />
+              </TableHead>
               <TableHead className="w-[220px]">Rider</TableHead>
               <TableHead>Phone</TableHead>
               <TableHead>Hub</TableHead>
@@ -621,8 +697,19 @@ export default function RidersPage() {
               visible.map((rider) => (
                 <TableRow
                   key={rider.id}
-                  className="hover:bg-slate-50/80 transition-colors"
+                  className={`hover:bg-slate-50/80 transition-colors ${
+                    selectedIds.has(rider.id) ? "bg-blue-50/60" : ""
+                  }`}
                 >
+                  {/* Row checkbox */}
+                  <TableCell className="w-10">
+                    <input
+                      type="checkbox"
+                      className="h-4 w-4 rounded border-slate-300 accent-[#0D2D6B] cursor-pointer"
+                      checked={selectedIds.has(rider.id)}
+                      onChange={() => toggleSelect(rider.id)}
+                    />
+                  </TableCell>
                   {/* Name + avatar */}
                   <TableCell>
                     <div className="flex items-center gap-3">
@@ -799,6 +886,115 @@ export default function RidersPage() {
           <p className="text-xs text-muted-foreground">All {filtered.length} riders loaded</p>
         ) : null}
       </div>
+
+      {/* ── Floating Bulk Action Bar ──────────────────────────────────────── */}
+      {selectedIds.size > 0 && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 rounded-2xl border border-slate-200 bg-white/95 backdrop-blur-md shadow-2xl px-4 py-3 ring-1 ring-black/5">
+          {/* Count badge */}
+          <div className="flex items-center gap-2 pr-3 border-r border-slate-200">
+            <CheckSquare className="h-4 w-4 text-[#0D2D6B]" />
+            <span className="text-sm font-bold text-[#0D2D6B]">{selectedIds.size} selected</span>
+          </div>
+
+          {/* Unassign Vehicle */}
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={bulkLoading}
+            className="gap-1.5 text-xs h-8 border-slate-300 text-slate-700 hover:bg-slate-50"
+            onClick={() => setBulkConfirm("unassign_vehicle")}
+          >
+            <Unlink className="h-3.5 w-3.5" />
+            Unassign Vehicle
+          </Button>
+
+          {/* Block Swap */}
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={bulkLoading}
+            className="gap-1.5 text-xs h-8 border-orange-200 text-orange-700 hover:bg-orange-50"
+            onClick={() => setBulkConfirm("block_swap")}
+          >
+            <Ban className="h-3.5 w-3.5" />
+            Block Swap
+          </Button>
+
+          {/* Unblock Swap */}
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={bulkLoading}
+            className="gap-1.5 text-xs h-8 border-emerald-200 text-emerald-700 hover:bg-emerald-50"
+            onClick={() => setBulkConfirm("unblock_swap")}
+          >
+            <RefreshCw className="h-3.5 w-3.5" />
+            Unblock Swap
+          </Button>
+
+          {/* Delete */}
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={bulkLoading}
+            className="gap-1.5 text-xs h-8 border-red-200 text-red-600 hover:bg-red-50"
+            onClick={() => setBulkConfirm("delete")}
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+            Delete
+          </Button>
+
+          {/* Dismiss */}
+          <button
+            onClick={clearSelection}
+            className="ml-1 p-1 rounded-full hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-colors"
+            title="Clear selection"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+      )}
+
+      {/* ── Bulk Action Confirm Dialog ────────────────────────────────────── */}
+      <Dialog open={bulkConfirm !== null} onOpenChange={(o) => !o && setBulkConfirm(null)}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              {bulkConfirm === "delete" && <><Trash2 className="h-5 w-5 text-red-500" /> Delete {selectedIds.size} Rider{selectedIds.size !== 1 ? "s" : ""}</>}
+              {bulkConfirm === "unassign_vehicle" && <><Unlink className="h-5 w-5 text-slate-500" /> Unassign Vehicle & Driver ID</>}
+              {bulkConfirm === "block_swap" && <><Ban className="h-5 w-5 text-orange-500" /> Block Swap Access</>}
+              {bulkConfirm === "unblock_swap" && <><RefreshCw className="h-5 w-5 text-emerald-500" /> Unblock Swap Access</>}
+            </DialogTitle>
+            <DialogDescription>
+              {bulkConfirm === "delete" &&
+                `This will permanently delete ${selectedIds.size} rider(s) and all their associated data. This action cannot be undone.`}
+              {bulkConfirm === "unassign_vehicle" &&
+                `This will clear the vehicle assignment and Upgrid driver ID from ${selectedIds.size} rider(s).`}
+              {bulkConfirm === "block_swap" &&
+                `This will block battery swap access for ${selectedIds.size} rider(s) via Upgrid. Riders must have a driver ID.`}
+              {bulkConfirm === "unblock_swap" &&
+                `This will restore battery swap access for ${selectedIds.size} rider(s) via Upgrid.`}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2 mt-2">
+            <Button variant="ghost" onClick={() => setBulkConfirm(null)} disabled={bulkLoading}>
+              Cancel
+            </Button>
+            <Button
+              variant={bulkConfirm === "delete" ? "destructive" : "default"}
+              className={bulkConfirm !== "delete" ? "bg-[#0D2D6B] hover:bg-[#0D2D6B]/90" : ""}
+              disabled={bulkLoading}
+              onClick={() => bulkConfirm && executeBulkAction(bulkConfirm)}
+            >
+              {bulkLoading ? (
+                <><Loader2 className="h-4 w-4 animate-spin mr-2" /> Processing…</>
+              ) : (
+                "Confirm"
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Offline Onboard Drawer */}
       <Sheet open={onboardOpen} onOpenChange={setOnboardOpen}>
