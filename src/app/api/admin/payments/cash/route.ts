@@ -41,9 +41,9 @@ export async function POST(request: Request) {
         return NextResponse.json({ error: "Rider not found" }, { status: 404 });
       }
 
-      if (rider.status !== "kyc_approved") {
+      if (!["kyc_approved", "active"].includes(rider.status)) {
         return NextResponse.json(
-          { error: `Rider status is '${rider.status}'. Onboarding is only allowed for kyc_approved riders.` },
+          { error: `Rider status is '${rider.status}'. Onboarding payment is only allowed for kyc_approved or active riders.` },
           { status: 400 }
         );
       }
@@ -94,16 +94,17 @@ export async function POST(request: Request) {
       );
 
       // 4. Activate rider + credit wallet with rental portion
-      await supabaseAdmin
-        .from("riders")
-        .update({
-          status:               "active",
-          wallet_balance:       rentalCredit,
-          daily_deduction_rate: pricing.dailyRate,
-          payment_status:       "paid",
-          outstanding_balance:  0,
-        })
-        .eq("id", riderId);
+      //    If rider is already active, just credit wallet and record deposit — don't change status
+      const riderUpdate: Record<string, unknown> = {
+        wallet_balance:       rentalCredit,
+        daily_deduction_rate: pricing.dailyRate,
+        payment_status:       "paid",
+        outstanding_balance:  0,
+      };
+      if (rider.status === "kyc_approved") {
+        riderUpdate.status = "active"; // only flip status if not already active
+      }
+      await supabaseAdmin.from("riders").update(riderUpdate).eq("id", riderId);
 
       // 5. Log wallet_transaction for the rental credit
       if (rentalCredit > 0) {

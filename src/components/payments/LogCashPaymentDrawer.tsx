@@ -173,7 +173,9 @@ export function LogCashPaymentDrawer({ adminId, onSuccess, riderId, riderName }:
 
   // ── Validation guards ─────────────────────────────────────────────────
   const isOnboarding = watchedPlanType === "onboarding";
-  const riderNotKycApproved = isOnboarding && selectedRider?.status && selectedRider.status !== "kyc_approved";
+  const riderNotKycApproved = isOnboarding && selectedRider?.status
+    && !(["kyc_approved", "active"].includes(selectedRider.status));
+  const riderAlreadyActive  = isOnboarding && selectedRider?.status === "active";
   const onboardingAmountTooLow = isOnboarding && watchedAmount > 0 && !onboardingBreakdown?.valid;
   const isBlocked = riderNotKycApproved || onboardingAmountTooLow;
 
@@ -401,7 +403,20 @@ export function LogCashPaymentDrawer({ adminId, onSuccess, riderId, riderName }:
             </div>
           )}
 
-          {/* ── Rider status error for onboarding ── */}
+          {/* ── Rider already active — soft info note ── */}
+          {riderAlreadyActive && !riderNotKycApproved && (
+            <div className="flex items-start gap-2.5 rounded-xl border border-blue-200 bg-blue-50 p-3">
+              <span className="text-base shrink-0">ℹ️</span>
+              <div>
+                <p className="text-xs font-semibold text-blue-800">Rider is already active</p>
+                <p className="text-[11px] text-blue-700 mt-0.5">
+                  Payment will be recorded retroactively. Wallet will be credited and security deposit logged. Status won&apos;t change.
+                </p>
+              </div>
+            </div>
+          )}
+
+          {/* ── Rider status error for other statuses ── */}
           {riderNotKycApproved && (
             <div className="flex items-start gap-2.5 rounded-xl border border-red-200 bg-red-50 p-3">
               <AlertTriangle className="h-4 w-4 text-red-600 mt-0.5 shrink-0" />
