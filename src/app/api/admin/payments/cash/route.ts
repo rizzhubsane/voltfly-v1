@@ -14,7 +14,7 @@ export async function POST(request: Request) {
     }
 
     const body = await request.json();
-    const { riderId, amount, planType, paidAt, notes, method } = body;
+    const { riderId, amount, planType, paidAt, notes, method, operator } = body;
     const adminId = auth.admin.id;
 
     if (!riderId || !amount || !planType) {
@@ -48,7 +48,7 @@ export async function POST(request: Request) {
         );
       }
 
-      const pricing = getOperatorPricing(rider.gig_company);
+      const pricing = getOperatorPricing(operator === "indofast" ? "indofast" : null);
 
       if (amount < pricing.minimumOnboardCash) {
         return NextResponse.json(

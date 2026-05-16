@@ -35,6 +35,8 @@ interface RiderResult {
   vehicle_id: string | null;
 }
 
+type Operator = "batterysmart" | "indofast";
+
 // ─── Form Schema ─────────────────────────────────────────────────────────────
 
 const formSchema = z.object({
@@ -108,6 +110,9 @@ export function LogCashPaymentDrawer({ adminId, onSuccess, riderId, riderName }:
     riderId && riderName ? { id: riderId, name: riderName, phone_1: "", status: "", gig_company: null, vehicle_id: null } : null
   );
 
+  // ── Explicit operator selection (shown when Onboarding is selected) ────
+  const [operator, setOperator] = useState<Operator>("batterysmart");
+
   const form = useForm<FormValues>({
     resolver: zodResolver(formSchema),
     defaultValues: {
@@ -150,10 +155,10 @@ export function LogCashPaymentDrawer({ adminId, onSuccess, riderId, riderName }:
     setRiderSearch("");
   };
 
-  // ── Operator pricing derived from selected rider ──────────────────────
+  // ── Operator pricing driven by EXPLICIT operator selection ───────────
   const pricing = useMemo(
-    () => getOperatorPricing(selectedRider?.gig_company),
-    [selectedRider?.gig_company]
+    () => getOperatorPricing(operator === "indofast" ? "indofast" : null),
+    [operator]
   );
 
   // ── Onboarding breakdown (computed in real-time as amount changes) ─────
@@ -186,6 +191,7 @@ export function LogCashPaymentDrawer({ adminId, onSuccess, riderId, riderName }:
           paidAt:   values.paymentDate.toISOString(),
           notes:    values.notes,
           adminId:  adminId,
+          operator: values.planType === "onboarding" ? operator : undefined,
         }),
       });
       if (!res.ok) {
@@ -204,6 +210,7 @@ export function LogCashPaymentDrawer({ adminId, onSuccess, riderId, riderName }:
       await queryClient.invalidateQueries({ queryKey: ["overdue-riders"] });
       form.reset({ riderId: riderId || "", amount: 0, planType: "", method: "cash", paymentDate: new Date(), notes: "" });
       if (!isLockedToRider) setSelectedRider(null);
+      setOperator("batterysmart");
       onSuccess();
     },
     onError: (error: unknown) => {
@@ -246,11 +253,6 @@ export function LogCashPaymentDrawer({ adminId, onSuccess, riderId, riderName }:
                       <span className="font-semibold text-sm text-[#0D2D6B]">{selectedRider.name}</span>
                       <div className="flex items-center gap-1.5 mt-0.5">
                         <span className="text-[10px] text-muted-foreground font-medium">{selectedRider.phone_1}</span>
-                        {selectedRider.gig_company && (
-                          <span className="text-[9px] font-bold uppercase bg-slate-200 text-slate-600 px-1.5 py-0.5 rounded-full">
-                            {selectedRider.gig_company}
-                          </span>
-                        )}
                         {selectedRider.status && (
                           <span className={`text-[9px] font-bold uppercase px-1.5 py-0.5 rounded-full ${
                             selectedRider.status === "kyc_approved"
@@ -299,11 +301,6 @@ export function LogCashPaymentDrawer({ adminId, onSuccess, riderId, riderName }:
                             <div className="font-semibold text-sm text-[#0D2D6B] truncate">{r.name}</div>
                             <div className="flex items-center gap-1.5 mt-0.5">
                               <span className="text-[10px] text-muted-foreground font-medium">{r.phone_1}</span>
-                              {r.gig_company && (
-                                <span className="text-[9px] font-bold uppercase bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded-full">
-                                  {r.gig_company}
-                                </span>
-                              )}
                               <span className={`text-[9px] font-bold uppercase px-1.5 py-0.5 rounded-full ${
                                 r.status === "kyc_approved" ? "bg-amber-100 text-amber-700" :
                                 r.status === "active" ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-500"
@@ -369,6 +366,40 @@ export function LogCashPaymentDrawer({ adminId, onSuccess, riderId, riderName }:
               </FormItem>
             )}
           />
+
+          {/* ── Operator Selector (only when Onboarding is selected) ── */}
+          {isOnboarding && (
+            <div className="space-y-2">
+              <p className="text-xs font-bold uppercase tracking-wider text-slate-500">Operator *</p>
+              <div className="grid grid-cols-2 gap-2">
+                {([
+                  { id: "batterysmart" as Operator, label: "BatterySmart", sub: "₹2,000 dep · ₹190 fee · ₹230/day", emoji: "⚡" },
+                  { id: "indofast"    as Operator, label: "Indofast",     sub: "₹2,000 dep · ₹250 fee · ₹250/day", emoji: "🚀" },
+                ] as const).map((op) => {
+                  const isSelected = operator === op.id;
+                  return (
+                    <button
+                      key={op.id}
+                      type="button"
+                      onClick={() => setOperator(op.id)}
+                      className={`flex flex-col items-start gap-0.5 p-3 rounded-xl border-2 text-left transition-all ${
+                        isSelected
+                          ? "border-[#0D2D6B] bg-[#0D2D6B]/5 shadow-sm"
+                          : "border-slate-200 hover:border-slate-300 hover:bg-slate-50"
+                      }`}
+                    >
+                      <span className="text-base leading-none">{op.emoji}</span>
+                      <span className={`text-xs font-bold mt-1 ${isSelected ? "text-[#0D2D6B]" : "text-slate-700"}`}>
+                        {op.label}
+                      </span>
+                      <span className="text-[10px] text-muted-foreground leading-tight">{op.sub}</span>
+                      {isSelected && <span className="w-1.5 h-1.5 rounded-full bg-[#0D2D6B] mt-1" />}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
 
           {/* ── Rider status error for onboarding ── */}
           {riderNotKycApproved && (
