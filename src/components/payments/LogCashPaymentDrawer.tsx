@@ -1,109 +1,132 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
 import { format } from "date-fns";
 import { toast } from "sonner";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Search, Loader2, IndianRupee, Calendar as CalendarIcon, User, FileText, LayoutList, AlertTriangle } from "lucide-react";
+import {
+  Search, Loader2, IndianRupee, Calendar as CalendarIcon,
+  User, FileText, LayoutList, AlertTriangle, CheckCircle2,
+  Wallet, Package, UserPlus, ChevronRight,
+} from "lucide-react";
 import { adminFetch } from "@/lib/adminFetch";
 import { Button } from "@/components/ui/button";
 import {
-  Form,
-  FormControl,
-  FormField,
-  FormItem,
-  FormLabel,
-  FormMessage,
+  Form, FormControl, FormField, FormItem, FormLabel, FormMessage,
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import {
-  SheetContent,
-  SheetDescription,
-  SheetHeader,
-  SheetTitle,
-} from "@/components/ui/sheet";
+import { SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
 import { cn } from "@/lib/utils";
+import { getOperatorPricing } from "@/lib/pricingConstants";
 
-import { PRICING } from "@/lib/pricingConstants";
+// ─── Types ────────────────────────────────────────────────────────────────────
+
+interface RiderResult {
+  id: string;
+  name: string;
+  phone_1: string;
+  status: string;
+  gig_company: string | null;
+  vehicle_id: string | null;
+}
+
+// ─── Form Schema ─────────────────────────────────────────────────────────────
 
 const formSchema = z.object({
-  riderId: z.string().min(1, "Rider is required"),
-  amount: z.number().min(1, "Amount must be greater than 0"),
-  planType: z.string().min(1, "Category is required"),
-  method: z.string().min(1, "Payment method is required"),
+  riderId:     z.string().min(1, "Rider is required"),
+  amount:      z.number().min(1, "Amount must be greater than 0"),
+  planType:    z.string().min(1, "Category is required"),
+  method:      z.string().min(1, "Payment method is required"),
   paymentDate: z.date(),
-  notes: z.string().optional(),
+  notes:       z.string().optional(),
 });
 
 type FormValues = z.infer<typeof formSchema>;
 
+// ─── Category Config ──────────────────────────────────────────────────────────
+
 const CATEGORIES = [
-  { id: "daily",            label: "Daily Rent",                       defaultAmount: 0 },
-  { id: "weekly",           label: "Weekly Rent",                      defaultAmount: 0 },
-  { id: "monthly",          label: "Monthly Rent",                     defaultAmount: 0 },
-  { id: "wallet_topup",     label: "Wallet Top-up (General)",          defaultAmount: 0 },
-  { id: "security_deposit", label: "Security Deposit",                 defaultAmount: 0 },
-  { id: "service",          label: "Spare Parts / Service",            defaultAmount: 0 },
-  { id: "onboarding_fee",   label: "Onboarding Fee",                   defaultAmount: PRICING.ONBOARDING_FEES },
-];
+  {
+    id:    "wallet_topup",
+    label: "Wallet Top-Up",
+    icon:  Wallet,
+    desc:  "Credit any amount to the rider's wallet",
+    color: "text-emerald-700 bg-emerald-50 border-emerald-200",
+    activeColor: "border-emerald-600 bg-emerald-50 shadow-sm",
+  },
+  {
+    id:    "onboarding",
+    label: "Onboarding",
+    icon:  UserPlus,
+    desc:  "New rider activation (deposit + fee + wallet credit)",
+    color: "text-blue-700 bg-blue-50 border-blue-200",
+    activeColor: "border-blue-600 bg-blue-50 shadow-sm",
+  },
+  {
+    id:    "service",
+    label: "Spare Parts / Service",
+    icon:  Package,
+    desc:  "Maintenance charge (no wallet change)",
+    color: "text-orange-700 bg-orange-50 border-orange-200",
+    activeColor: "border-orange-500 bg-orange-50 shadow-sm",
+  },
+] as const;
+
+// ─── Payment Method Config ─────────────────────────────────────────────────────
 
 const PAYMENT_METHODS = [
-  { id: "cash",      label: "Cash",             icon: "💵", color: "text-emerald-700 bg-emerald-50 border-emerald-200" },
-  { id: "upi",       label: "UPI",              icon: "📲", color: "text-blue-700 bg-blue-50 border-blue-200" },
-  { id: "razorpay",  label: "Razorpay (Online)", icon: "💳", color: "text-purple-700 bg-purple-50 border-purple-200" },
+  { id: "cash",      label: "Cash",        icon: "💵", color: "text-emerald-700 bg-emerald-50 border-emerald-200" },
+  { id: "upi",       label: "Kotak UPI",   icon: "📲", color: "text-blue-700 bg-blue-50 border-blue-200" },
+  { id: "razorpay",  label: "Razorpay",    icon: "💳", color: "text-purple-700 bg-purple-50 border-purple-200" },
 ];
 
+// ─── Props ────────────────────────────────────────────────────────────────────
+
 interface LogCashPaymentDrawerProps {
-  adminId: string;
-  onSuccess: () => void;
-  riderId?: string;
+  adminId:    string;
+  onSuccess:  () => void;
+  riderId?:   string;
   riderName?: string;
 }
 
+// ─── Component ────────────────────────────────────────────────────────────────
+
 export function LogCashPaymentDrawer({ adminId, onSuccess, riderId, riderName }: LogCashPaymentDrawerProps) {
-  const isLockedToRider = Boolean(riderId); // true when opened from a rider profile
-  const [riderSearch, setRiderSearch] = useState("");
-  const [riders, setRiders] = useState<{ id: string; name: string; phone_1: string; vehicle_id: string | null }[]>([]);
-  const [isSearching, setIsSearching] = useState(false);
-  const [selectedRider, setSelectedRider] = useState<{ id: string; name: string } | null>(
-    riderId && riderName ? { id: riderId, name: riderName } : null
-  );
-
-  const [isOnboardingFee, setIsOnboardingFee] = useState(false);
-
+  const isLockedToRider = Boolean(riderId);
   const queryClient = useQueryClient();
+
+  // ── Rider search state ──────────────────────────────────────────────────
+  const [riderSearch,   setRiderSearch]   = useState("");
+  const [riders,        setRiders]        = useState<RiderResult[]>([]);
+  const [isSearching,   setIsSearching]   = useState(false);
+  const [selectedRider, setSelectedRider] = useState<RiderResult | null>(
+    riderId && riderName ? { id: riderId, name: riderName, phone_1: "", status: "", gig_company: null, vehicle_id: null } : null
+  );
 
   const form = useForm<FormValues>({
     resolver: zodResolver(formSchema),
     defaultValues: {
-      riderId: riderId || "",
-      amount: 0,
-      planType: "",
-      method: "cash",
+      riderId:     riderId || "",
+      amount:      0,
+      planType:    "",
+      method:      "cash",
       paymentDate: new Date(),
-      notes: "",
+      notes:       "",
     },
   });
 
-  // ── Rider Search ──────────────────────────────────────────────────────────
+  const watchedPlanType = form.watch("planType");
+  const watchedAmount   = form.watch("amount");
+
+  // ── Rider search ────────────────────────────────────────────────────────
   useEffect(() => {
     const searchRiders = async () => {
-      if (riderSearch.length < 2) {
-        setRiders([]);
-        return;
-      }
+      if (riderSearch.length < 2) { setRiders([]); return; }
       setIsSearching(true);
       try {
         const res = await adminFetch(`/api/admin/riders/search?q=${encodeURIComponent(riderSearch)}`);
@@ -116,78 +139,71 @@ export function LogCashPaymentDrawer({ adminId, onSuccess, riderId, riderName }:
         setIsSearching(false);
       }
     };
-
     const timer = setTimeout(searchRiders, 300);
     return () => clearTimeout(timer);
   }, [riderSearch]);
 
-  const handleSelectRider = (rider: { id: string; name: string }) => {
+  const handleSelectRider = (rider: RiderResult) => {
     setSelectedRider(rider);
     form.setValue("riderId", rider.id);
     setRiders([]);
     setRiderSearch("");
   };
 
-  // ── Category Selection ────────────────────────────────────────────────────────
-  const handleCategoryChange = (categoryId: string) => {
-    const category = CATEGORIES.find(c => c.id === categoryId);
-    setIsOnboardingFee(categoryId === "onboarding_fee");
-    if (category && category.defaultAmount > 0) {
-      form.setValue("amount", category.defaultAmount);
-    } else {
-      form.setValue("amount", 0);
-    }
-  };
+  // ── Operator pricing derived from selected rider ──────────────────────
+  const pricing = useMemo(
+    () => getOperatorPricing(selectedRider?.gig_company),
+    [selectedRider?.gig_company]
+  );
 
-  // ── Real-time ledger guardrail ───────────────────────────────────────────────
-  // If admin enters >= ₹3,800 on any plan other than security_deposit,
-  // it almost certainly means they collected the onboarding bundle and are
-  // using the wrong drawer. Block submission with a hard error.
-  const watchedAmount = form.watch("amount");
-  const watchedPlanType = form.watch("planType");
-  const looksLikeOnboarding =
-    watchedAmount >= PRICING.FULL_ONBOARDING &&
-    watchedPlanType !== "security_deposit" &&
-    watchedPlanType !== "";
+  // ── Onboarding breakdown (computed in real-time as amount changes) ─────
+  const onboardingBreakdown = useMemo(() => {
+    if (watchedPlanType !== "onboarding" || !watchedAmount) return null;
+    const deposit = pricing.securityDeposit;
+    const fee     = pricing.onboardingFee;
+    const wallet  = Math.max(0, watchedAmount - deposit - fee);
+    const valid   = watchedAmount >= pricing.minimumOnboardCash;
+    return { deposit, fee, wallet, valid };
+  }, [watchedPlanType, watchedAmount, pricing]);
 
-  // ── Submit ───────────────────────────────────────────────────────────────
+  // ── Validation guards ─────────────────────────────────────────────────
+  const isOnboarding = watchedPlanType === "onboarding";
+  const riderNotKycApproved = isOnboarding && selectedRider?.status && selectedRider.status !== "kyc_approved";
+  const onboardingAmountTooLow = isOnboarding && watchedAmount > 0 && !onboardingBreakdown?.valid;
+  const isBlocked = riderNotKycApproved || onboardingAmountTooLow;
+
+  // ── Submit ─────────────────────────────────────────────────────────────
   const logCashMutation = useMutation({
     mutationFn: async (values: FormValues) => {
-      // Hard guard: block onboarding-sized amounts through this drawer
-      if (values.amount >= PRICING.FULL_ONBOARDING && values.planType !== "security_deposit") {
-        throw new Error(
-          `₹${values.amount.toLocaleString("en-IN")} looks like an onboarding bundle. Use the Offline Onboard flow to split it correctly into deposit + fee + rental.`
-        );
-      }
-
       const res = await adminFetch("/api/admin/payments/cash", {
-        method: "POST",
+        method:  "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          riderId: values.riderId,
-          amount: values.amount,
+          riderId:  values.riderId,
+          amount:   values.amount,
           planType: values.planType,
-          method: values.method,
-          paidAt: values.paymentDate.toISOString(),
-          notes: values.notes,
-          adminId: adminId,
+          method:   values.method,
+          paidAt:   values.paymentDate.toISOString(),
+          notes:    values.notes,
+          adminId:  adminId,
         }),
       });
-
       if (!res.ok) {
         const json = await res.json().catch(() => ({}));
         throw new Error(json.error || "Failed to record payment");
       }
-
       return res.json();
     },
-    onSuccess: async () => {
-      toast.success("Cash payment logged successfully");
+    onSuccess: async (data) => {
+      if (watchedPlanType === "onboarding" && data.new_wallet_balance != null) {
+        toast.success(`Rider activated ✓ Wallet: ₹${data.new_wallet_balance.toLocaleString("en-IN")} credited`);
+      } else {
+        toast.success("Payment logged successfully");
+      }
       await queryClient.invalidateQueries({ queryKey: ["all-payments"] });
       await queryClient.invalidateQueries({ queryKey: ["overdue-riders"] });
-      form.reset();
-      setSelectedRider(null);
-      setIsOnboardingFee(false);
+      form.reset({ riderId: riderId || "", amount: 0, planType: "", method: "cash", paymentDate: new Date(), notes: "" });
+      if (!isLockedToRider) setSelectedRider(null);
       onSuccess();
     },
     onError: (error: unknown) => {
@@ -196,6 +212,9 @@ export function LogCashPaymentDrawer({ adminId, onSuccess, riderId, riderName }:
     },
   });
 
+  // ─────────────────────────────────────────────────────────────────────────────
+  // RENDER
+  // ─────────────────────────────────────────────────────────────────────────────
   return (
     <SheetContent className="sm:max-w-md overflow-y-auto">
       <SheetHeader className="pb-6">
@@ -204,32 +223,19 @@ export function LogCashPaymentDrawer({ adminId, onSuccess, riderId, riderName }:
           Log Cash Payment
         </SheetTitle>
         <SheetDescription>
-          Record a physical cash collection from a rider.
+          Record a payment collected from a rider.
         </SheetDescription>
       </SheetHeader>
 
       <Form {...form}>
         <form onSubmit={form.handleSubmit((v) => logCashMutation.mutate(v))} className="space-y-6">
 
-          {/* ── Hard ledger block: amount looks like onboarding bundle ── */}
-          {looksLikeOnboarding && (
-            <div className="flex items-start gap-2.5 rounded-xl border border-red-200 bg-red-50 p-3">
-              <AlertTriangle className="h-4 w-4 text-red-600 mt-0.5 shrink-0" />
-              <div>
-                <p className="text-xs font-semibold text-red-800">
-                  ₹{watchedAmount.toLocaleString("en-IN")} — This looks like an onboarding bundle
-                </p>
-                <p className="text-[11px] text-red-700 mt-0.5">
-                  You cannot log ₹{PRICING.FULL_ONBOARDING.toLocaleString("en-IN")}+ as a single cash payment. The onboarding bundle (<strong>₹{PRICING.SECURITY_DEPOSIT.toLocaleString("en-IN")} deposit + ₹{PRICING.ONBOARDING_FEES} fee + ₹{PRICING.WEEKLY_RATE.toLocaleString("en-IN")} rental</strong>) must be split via the <strong>Offline Onboard</strong> drawer. Close this and use that instead.
-                </p>
-              </div>
-            </div>
-          )}
-
-          {/* Rider Selection — hidden when drawer is locked to a specific rider from their profile */}
+          {/* ── Rider Selection ── */}
           {!isLockedToRider && (
             <div className="space-y-2">
-              <FormLabel className="text-xs font-bold uppercase tracking-wider text-slate-500">Rider *</FormLabel>
+              <FormLabel className="text-xs font-bold uppercase tracking-wider text-slate-500">
+                Rider *
+              </FormLabel>
               {selectedRider ? (
                 <div className="flex items-center justify-between p-3 rounded-xl border bg-slate-50 ring-1 ring-slate-100">
                   <div className="flex items-center gap-3">
@@ -238,16 +244,31 @@ export function LogCashPaymentDrawer({ adminId, onSuccess, riderId, riderName }:
                     </div>
                     <div className="flex flex-col">
                       <span className="font-semibold text-sm text-[#0D2D6B]">{selectedRider.name}</span>
-                      <span className="text-[10px] text-muted-foreground uppercase font-medium">Selected Rider</span>
+                      <div className="flex items-center gap-1.5 mt-0.5">
+                        <span className="text-[10px] text-muted-foreground font-medium">{selectedRider.phone_1}</span>
+                        {selectedRider.gig_company && (
+                          <span className="text-[9px] font-bold uppercase bg-slate-200 text-slate-600 px-1.5 py-0.5 rounded-full">
+                            {selectedRider.gig_company}
+                          </span>
+                        )}
+                        {selectedRider.status && (
+                          <span className={`text-[9px] font-bold uppercase px-1.5 py-0.5 rounded-full ${
+                            selectedRider.status === "kyc_approved"
+                              ? "bg-amber-100 text-amber-700"
+                              : selectedRider.status === "active"
+                              ? "bg-emerald-100 text-emerald-700"
+                              : "bg-slate-200 text-slate-600"
+                          }`}>
+                            {selectedRider.status}
+                          </span>
+                        )}
+                      </div>
                     </div>
                   </div>
-                  <Button 
-                    variant="ghost" 
-                    size="sm" 
-                    onClick={() => {
-                      setSelectedRider(null);
-                      form.setValue("riderId", "");
-                    }}
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => { setSelectedRider(null); form.setValue("riderId", ""); }}
                     className="h-8 text-[11px] font-bold uppercase text-primary hover:text-primary hover:bg-primary/5"
                   >
                     Change
@@ -266,23 +287,35 @@ export function LogCashPaymentDrawer({ adminId, onSuccess, riderId, riderName }:
                     <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 animate-spin text-muted-foreground" />
                   )}
                   {riders.length > 0 && (
-                    <div className="absolute top-full left-0 right-0 mt-2 bg-white border rounded-xl shadow-xl z-50 max-h-48 overflow-y-auto ring-1 ring-black/5 p-1 animate-in fade-in zoom-in-95 duration-150">
+                    <div className="absolute top-full left-0 right-0 mt-2 bg-white border rounded-xl shadow-xl z-50 max-h-52 overflow-y-auto ring-1 ring-black/5 p-1 animate-in fade-in zoom-in-95 duration-150">
                       {riders.map((r) => (
                         <button
                           key={r.id}
                           type="button"
-                          className="w-full text-left px-3 py-2 hover:bg-slate-50 rounded-lg transition-colors flex items-center gap-3"
+                          className="w-full text-left px-3 py-2.5 hover:bg-slate-50 rounded-lg transition-colors flex items-center gap-3"
                           onClick={() => handleSelectRider(r)}
                         >
                           <div className="flex-1 min-w-0">
                             <div className="font-semibold text-sm text-[#0D2D6B] truncate">{r.name}</div>
-                            <div className="text-[10px] text-muted-foreground font-medium">{r.phone_1}</div>
+                            <div className="flex items-center gap-1.5 mt-0.5">
+                              <span className="text-[10px] text-muted-foreground font-medium">{r.phone_1}</span>
+                              {r.gig_company && (
+                                <span className="text-[9px] font-bold uppercase bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded-full">
+                                  {r.gig_company}
+                                </span>
+                              )}
+                              <span className={`text-[9px] font-bold uppercase px-1.5 py-0.5 rounded-full ${
+                                r.status === "kyc_approved" ? "bg-amber-100 text-amber-700" :
+                                r.status === "active" ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-500"
+                              }`}>{r.status}</span>
+                            </div>
                           </div>
                           {r.vehicle_id && (
                             <span className="shrink-0 inline-flex items-center rounded-md bg-blue-50 border border-blue-200 px-2 py-0.5 text-[10px] font-semibold text-blue-700">
                               {r.vehicle_id}
                             </span>
                           )}
+                          <ChevronRight className="h-3.5 w-3.5 text-slate-300 shrink-0" />
                         </button>
                       ))}
                     </div>
@@ -295,52 +328,63 @@ export function LogCashPaymentDrawer({ adminId, onSuccess, riderId, riderName }:
             </div>
           )}
 
-          {/* Payment Category */}
+          {/* ── Payment Category ── */}
           <FormField
             control={form.control}
             name="planType"
             render={({ field }) => (
               <FormItem className="space-y-2">
-                <FormLabel className="text-xs font-bold uppercase tracking-wider text-slate-500">Payment Category *</FormLabel>
-                <div className="relative">
-                  <LayoutList className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400 z-10" />
-                  <Select onValueChange={(val: string) => {
-                    field.onChange(val);
-                    handleCategoryChange(val);
-                  }} defaultValue={field.value}>
-                    <FormControl>
-                      <SelectTrigger className="pl-9 h-10 rounded-xl border-slate-200">
-                        <SelectValue placeholder="Select a payment category..." />
-                      </SelectTrigger>
-                    </FormControl>
-                    <SelectContent className="rounded-xl">
-                      {CATEGORIES.map((c) => (
-                        <SelectItem key={c.id} value={c.id} className="rounded-lg">{c.label}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                <FormLabel className="text-xs font-bold uppercase tracking-wider text-slate-500">
+                  <LayoutList className="inline h-3.5 w-3.5 mr-1" />
+                  Payment Category *
+                </FormLabel>
+                <div className="grid grid-cols-1 gap-2">
+                  {CATEGORIES.map((cat) => {
+                    const Icon = cat.icon;
+                    const isSelected = field.value === cat.id;
+                    return (
+                      <button
+                        key={cat.id}
+                        type="button"
+                        onClick={() => field.onChange(cat.id)}
+                        className={`flex items-center gap-3 p-3 rounded-xl border-2 text-left transition-all ${
+                          isSelected ? cat.activeColor : "border-slate-200 hover:border-slate-300 hover:bg-slate-50"
+                        }`}
+                      >
+                        <div className={`p-2 rounded-lg border ${cat.color}`}>
+                          <Icon className="h-4 w-4" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className={`text-sm font-semibold ${isSelected ? "text-[#0D2D6B]" : "text-slate-700"}`}>
+                            {cat.label}
+                          </p>
+                          <p className="text-[10px] text-muted-foreground leading-tight">{cat.desc}</p>
+                        </div>
+                        {isSelected && <CheckCircle2 className="h-4 w-4 text-[#0D2D6B] shrink-0" />}
+                      </button>
+                    );
+                  })}
                 </div>
                 <FormMessage className="text-xs" />
               </FormItem>
             )}
           />
 
-          {/* Onboarding fee warning — shown when 'onboarding_fee' is selected */}
-          {isOnboardingFee && (
-            <div className="flex items-start gap-2.5 rounded-xl border border-amber-200 bg-amber-50 p-3">
-              <AlertTriangle className="h-4 w-4 text-amber-600 mt-0.5 shrink-0" />
+          {/* ── Rider status error for onboarding ── */}
+          {riderNotKycApproved && (
+            <div className="flex items-start gap-2.5 rounded-xl border border-red-200 bg-red-50 p-3">
+              <AlertTriangle className="h-4 w-4 text-red-600 mt-0.5 shrink-0" />
               <div>
-                <p className="text-xs font-semibold text-amber-800">Onboarding Fee only — ₹{PRICING.ONBOARDING_FEES}</p>
-                <p className="text-[11px] text-amber-700 mt-0.5">
-                  This records <strong>only the ₹{PRICING.ONBOARDING_FEES} handling fee</strong>. If this is a new rider&apos;s first payment (₹{PRICING.FULL_ONBOARDING.toLocaleString("en-IN")} bundle), use the{" "}
-                  <strong>Offline Onboard</strong> flow instead.
+                <p className="text-xs font-semibold text-red-800">Rider cannot be onboarded</p>
+                <p className="text-[11px] text-red-700 mt-0.5">
+                  Current status is <strong>{selectedRider?.status}</strong>. Only <strong>kyc_approved</strong> riders can be onboarded.
                 </p>
               </div>
             </div>
           )}
 
+          {/* ── Amount + Date ── */}
           <div className="grid grid-cols-2 gap-4">
-            {/* Amount */}
             <FormField
               control={form.control}
               name="amount"
@@ -350,10 +394,10 @@ export function LogCashPaymentDrawer({ adminId, onSuccess, riderId, riderName }:
                   <FormControl>
                     <div className="relative">
                       <IndianRupee className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
-                      <Input 
-                        type="number" 
-                        {...field} 
-                        className="pl-9 h-10 rounded-xl border-slate-200 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" 
+                      <Input
+                        type="number"
+                        {...field}
+                        className="pl-9 h-10 rounded-xl border-slate-200 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                         onChange={(e) => field.onChange(Number(e.target.value))}
                       />
                     </div>
@@ -363,29 +407,24 @@ export function LogCashPaymentDrawer({ adminId, onSuccess, riderId, riderName }:
               )}
             />
 
-            {/* Payment Date */}
             <FormField
               control={form.control}
               name="paymentDate"
               render={({ field }) => (
                 <FormItem className="space-y-2">
-                  <FormLabel className="text-xs font-bold uppercase tracking-wider text-slate-500">Payment Date *</FormLabel>
+                  <FormLabel className="text-xs font-bold uppercase tracking-wider text-slate-500">Date *</FormLabel>
                   <Popover>
                     <PopoverTrigger asChild>
                       <FormControl>
                         <Button
-                          variant={"outline"}
+                          variant="outline"
                           className={cn(
                             "w-full pl-9 h-10 rounded-xl border-slate-200 text-left font-normal transition-all hover:bg-slate-50",
                             !field.value && "text-muted-foreground"
                           )}
                         >
                           <CalendarIcon className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
-                          {field.value ? (
-                            format(field.value, "PPP")
-                          ) : (
-                            <span>Pick a date</span>
-                          )}
+                          {field.value ? format(field.value, "dd MMM yy") : <span>Pick a date</span>}
                         </Button>
                       </FormControl>
                     </PopoverTrigger>
@@ -394,9 +433,7 @@ export function LogCashPaymentDrawer({ adminId, onSuccess, riderId, riderName }:
                         mode="single"
                         selected={field.value}
                         onSelect={field.onChange}
-                        disabled={(date: Date) =>
-                          date > new Date() || date < new Date("1900-01-01")
-                        }
+                        disabled={(date: Date) => date > new Date() || date < new Date("1900-01-01")}
                         initialFocus
                       />
                     </PopoverContent>
@@ -407,7 +444,50 @@ export function LogCashPaymentDrawer({ adminId, onSuccess, riderId, riderName }:
             />
           </div>
 
-          {/* Payment Method */}
+          {/* ── Onboarding Breakdown Preview ── */}
+          {isOnboarding && onboardingBreakdown && !riderNotKycApproved && (
+            <div className={`rounded-xl border p-3 space-y-2 ${
+              onboardingBreakdown.valid
+                ? "border-blue-200 bg-blue-50"
+                : "border-amber-200 bg-amber-50"
+            }`}>
+              <div className="flex items-center gap-1.5 mb-1">
+                {onboardingBreakdown.valid
+                  ? <CheckCircle2 className="h-3.5 w-3.5 text-blue-600" />
+                  : <AlertTriangle className="h-3.5 w-3.5 text-amber-600" />}
+                <p className={`text-[11px] font-bold uppercase tracking-wide ${
+                  onboardingBreakdown.valid ? "text-blue-700" : "text-amber-700"
+                }`}>
+                  {onboardingBreakdown.valid
+                    ? `${pricing.operator === "indofast" ? "Indofast" : "BatterySmart"} Onboarding Breakdown`
+                    : `Need at least ₹${pricing.minimumOnboardCash.toLocaleString("en-IN")} to proceed`}
+                </p>
+              </div>
+              {onboardingBreakdown.valid && (
+                <div className="space-y-1.5">
+                  {[
+                    { label: "Security Deposit (held)", amount: onboardingBreakdown.deposit, color: "text-slate-700" },
+                    { label: "Verification / Onboarding Fee", amount: onboardingBreakdown.fee, color: "text-slate-700" },
+                    { label: "Wallet Credit (rental days)", amount: onboardingBreakdown.wallet, color: "text-emerald-700 font-bold" },
+                  ].map((row) => (
+                    <div key={row.label} className="flex items-center justify-between">
+                      <span className="text-[11px] text-slate-600">{row.label}</span>
+                      <span className={`text-[11px] ${row.color}`}>₹{row.amount.toLocaleString("en-IN")}</span>
+                    </div>
+                  ))}
+                  <div className="border-t border-blue-200 pt-1.5 flex items-center justify-between">
+                    <span className="text-[11px] font-bold text-blue-800">Total Received</span>
+                    <span className="text-[11px] font-bold text-blue-800">₹{watchedAmount.toLocaleString("en-IN")}</span>
+                  </div>
+                  <p className="text-[10px] text-blue-600 mt-1">
+                    💡 Payments table shows ₹{watchedAmount.toLocaleString("en-IN")} (single row). Split recorded in background.
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ── Payment Method ── */}
           <FormField
             control={form.control}
             name="method"
@@ -424,8 +504,8 @@ export function LogCashPaymentDrawer({ adminId, onSuccess, riderId, riderName }:
                         onClick={() => field.onChange(m.id)}
                         className={`flex flex-col items-center gap-1 py-3 px-2 rounded-xl border-2 text-center transition-all ${
                           isSelected
-                            ? `border-[#0D2D6B] bg-[#0D2D6B]/5 shadow-sm`
-                            : `border-slate-200 hover:border-slate-300 hover:bg-slate-50`
+                            ? "border-[#0D2D6B] bg-[#0D2D6B]/5 shadow-sm"
+                            : "border-slate-200 hover:border-slate-300 hover:bg-slate-50"
                         }`}
                       >
                         <span className="text-lg">{m.icon}</span>
@@ -442,7 +522,7 @@ export function LogCashPaymentDrawer({ adminId, onSuccess, riderId, riderName }:
             )}
           />
 
-          {/* Notes */}
+          {/* ── Notes ── */}
           <FormField
             control={form.control}
             name="notes"
@@ -452,10 +532,10 @@ export function LogCashPaymentDrawer({ adminId, onSuccess, riderId, riderName }:
                 <FormControl>
                   <div className="relative">
                     <FileText className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
-                    <Input 
-                      placeholder="e.g. Received by cashier in Okhla hub" 
+                    <Input
+                      placeholder="e.g. Received by cashier at Okhla hub"
                       className="pl-9 h-10 rounded-xl border-slate-200"
-                      {...field} 
+                      {...field}
                     />
                   </div>
                 </FormControl>
@@ -465,18 +545,15 @@ export function LogCashPaymentDrawer({ adminId, onSuccess, riderId, riderName }:
           />
 
           <div className="pt-4">
-            <Button 
-              type="submit" 
+            <Button
+              type="submit"
               className="w-full h-12 text-base font-bold bg-[#0D2D6B] hover:bg-[#0D2D6B]/90 rounded-xl shadow-lg shadow-blue-900/10 transition-all active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed"
-              disabled={logCashMutation.isPending || looksLikeOnboarding}
+              disabled={logCashMutation.isPending || Boolean(isBlocked)}
             >
               {logCashMutation.isPending ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Processing...
-                </>
-              ) : looksLikeOnboarding ? (
-                "Use Offline Onboard Instead →"
+                <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Processing...</>
+              ) : isOnboarding && onboardingBreakdown?.valid ? (
+                `Activate Rider & Log ₹${watchedAmount.toLocaleString("en-IN")}`
               ) : (
                 "Log Payment"
               )}

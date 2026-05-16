@@ -98,22 +98,24 @@ const STATUS_CONFIG: Record<string, { label: string; class: string }> = {
 };
 
 const METHOD_CONFIG: Record<string, { label: string; icon: string; class: string }> = {
-  cash:     { label: "Cash",     icon: "💵", class: "bg-emerald-50 text-emerald-700 border-emerald-200" },
-  upi:      { label: "UPI",      icon: "📲", class: "bg-blue-50 text-blue-700 border-blue-200" },
-  razorpay: { label: "Razorpay", icon: "💳", class: "bg-purple-50 text-purple-700 border-purple-200" },
-  online:   { label: "Online",   icon: "🌐", class: "bg-indigo-50 text-indigo-700 border-indigo-200" },
-  mandate:  { label: "Mandate",  icon: "📄", class: "bg-slate-50 text-slate-700 border-slate-200" },
+  cash:     { label: "Cash",        icon: "💵", class: "bg-emerald-50 text-emerald-700 border-emerald-200" },
+  upi:      { label: "Kotak UPI",   icon: "📲", class: "bg-blue-50 text-blue-700 border-blue-200" },
+  razorpay: { label: "Razorpay",    icon: "💳", class: "bg-purple-50 text-purple-700 border-purple-200" },
+  online:   { label: "Online",      icon: "🌐", class: "bg-indigo-50 text-indigo-700 border-indigo-200" },
+  mandate:  { label: "Mandate",     icon: "📄", class: "bg-slate-50 text-slate-700 border-slate-200" },
 };
 
-const PLAN_LABEL: Record<string, { label: string; amount?: number; cycleDays?: number }> = {
-  daily:          { label: "Daily",          amount: 230,  cycleDays: 1  },
-  weekly:         { label: "Weekly",         amount: 1610, cycleDays: 7  },
-  monthly:        { label: "Monthly",        amount: 6900, cycleDays: 30 },
-  onboarding_fee: { label: "Onboarding Fee", amount: 190                  },
-  deposit:        { label: "Deposit",        amount: 2000                  },
-  service:        { label: "Spare Parts / Service", amount: 0              },
-  security_deposit: { label: "Security Deposit",    amount: 0              },
-  custom:         { label: "Custom",                amount: 0              },
+const PLAN_LABEL: Record<string, { label: string }> = {
+  daily:            { label: "Daily" },
+  weekly:           { label: "Weekly" },
+  monthly:          { label: "Monthly" },
+  wallet_topup:     { label: "Wallet Top-Up" },
+  onboarding:       { label: "Onboarding" },
+  onboarding_fee:   { label: "Onboarding Fee" },
+  deposit:          { label: "Deposit" },
+  service:          { label: "Spare Parts / Service" },
+  security_deposit: { label: "Security Deposit" },
+  custom:           { label: "Custom" },
 };
 
 // ─── Fetchers ────────────────────────────────────────────────────────────────
