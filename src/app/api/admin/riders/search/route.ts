@@ -37,13 +37,13 @@ export async function GET(request: Request) {
     const [nameRes, phoneRes, vehicleRes] = await Promise.all([
       supabaseAdmin
         .from("riders")
-        .select("id, name, phone_1, status, gig_company")
+        .select("id, name, phone_1, status")
         .ilike("name", `%${term}%`)
         .limit(10),
 
       supabaseAdmin
         .from("riders")
-        .select("id, name, phone_1, status, gig_company")
+        .select("id, name, phone_1, status")
         .ilike("phone_1", `%${term}%`)
         .limit(10),
 
@@ -60,17 +60,17 @@ export async function GET(request: Request) {
     if (phoneRes.error) throw phoneRes.error;
 
     // Fetch full rider details for vehicle matches
-    let byVehicle: { id: string; name: string; phone_1: string; status: string; gig_company: string | null; vehicle_id: string }[] = [];
+    let byVehicle: { id: string; name: string; phone_1: string; status: string; vehicle_id: string }[] = [];
     if (!vehicleRes.error && vehicleRes.data && vehicleRes.data.length > 0) {
       const riderIds = vehicleRes.data.map((v) => v.assigned_rider_id as string);
       const { data: vRiders } = await supabaseAdmin
         .from("riders")
-        .select("id, name, phone_1, status, gig_company")
+        .select("id, name, phone_1, status")
         .in("id", riderIds)
         .limit(10);
 
       if (vRiders) {
-        byVehicle = vRiders.map((r) => {
+        byVehicle = (vRiders as any[]).map((r) => {
           const veh = vehicleRes.data.find((v) => v.assigned_rider_id === r.id);
           return { ...r, vehicle_id: veh?.vehicle_id ?? "" };
         });
@@ -79,13 +79,13 @@ export async function GET(request: Request) {
 
     // Merge and deduplicate — vehicle matches shown first
     const seen = new Set<string>();
-    const riders = [...byVehicle, ...(nameRes.data ?? []), ...(phoneRes.data ?? [])]
+    const riders = [...byVehicle, ...((nameRes.data as any[]) ?? []), ...((phoneRes.data as any[]) ?? [])]
       .map((r) => ({
         id: r.id,
         name: r.name,
         phone_1: r.phone_1,
         status: r.status,
-        gig_company: r.gig_company ?? null,
+        gig_company: (r.gig_company as string | null) ?? null,
         vehicle_id: (r as { vehicle_id?: string }).vehicle_id ?? null,
       }))
       .filter((r) => {

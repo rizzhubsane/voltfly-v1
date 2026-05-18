@@ -134,7 +134,7 @@ export async function POST(request: Request) {
         .update({ assigned_rider_id: null, assigned_at: null })
         .in("assigned_rider_id", riderIds);
 
-      await supabaseAdmin
+      await (supabaseAdmin as any)
         .from("batteries")
         .update({ current_rider_id: null })
         .in("current_rider_id", riderIds);
@@ -144,7 +144,7 @@ export async function POST(request: Request) {
       await supabaseAdmin.from("payments").delete().in("rider_id", riderIds);
       await supabaseAdmin.from("security_deposits").delete().in("rider_id", riderIds);
       await supabaseAdmin.from("service_requests").delete().in("rider_id", riderIds);
-      await supabaseAdmin.from("notifications_log").delete().in("rider_id", riderIds);
+      await (supabaseAdmin as any).from("notifications_log").delete().in("rider_id", riderIds);
 
       // Delete riders (CASCADE handles: kyc, notifications, wallet_transactions,
       // vehicle_handover_checklists, balance_audit_log — SET NULL for admin_activity_log)

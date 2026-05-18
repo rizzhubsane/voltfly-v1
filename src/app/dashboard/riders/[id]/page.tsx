@@ -72,6 +72,7 @@ import {
   Trash2,
   Pencil,
   Save,
+  Upload,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -526,6 +527,9 @@ export default function RiderDetailPage() {
     staleTime: 50 * 60 * 1000, // 50 min — signed URLs expire at 60 min
     gcTime: 60 * 60 * 1000,
   });
+
+  // ── KYC document upload state ────────────────────────────────────────────
+  const [kycUploading, setKycUploading] = useState<string | null>(null);
 
   // ── Mutations ────────────────────────────────────────────────────────────
 
@@ -1345,6 +1349,11 @@ export default function RiderDetailPage() {
                 <section>
                   <h3 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground mb-3 flex items-center gap-2">
                     <FileText className="h-4 w-4" /> Documents
+                    {isSuperAdmin && (
+                      <span className="ml-auto text-[10px] font-normal normal-case text-muted-foreground/70">
+                        Click any slot to upload
+                      </span>
+                    )}
                   </h3>
                   <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
                     {getDocs().map((doc) => {
@@ -1361,38 +1370,158 @@ export default function RiderDetailPage() {
                         };
                         return !!map[doc.label];
                       })();
+
+                      // Map label → kyc table field name
+                      const fieldMap: Record<string, string> = {
+                        Photo: "photo_url",
+                        "Aadhaar Front": "aadhaar_front_url",
+                        "Aadhaar Back": "aadhaar_back_url",
+                        "PAN Card": "pan_url",
+                        "Relative's ID Card": "pcc_url",
+                      };
+                      const kycField = fieldMap[doc.label];
                       const url = doc.url;
+                      const isUploadingThis = kycUploading === kycField;
+
+                      const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+                        const file = e.target.files?.[0];
+                        if (!file || !kycField) return;
+                        // Reset input so same file can be re-selected
+                        e.target.value = "";
+
+                        setKycUploading(kycField);
+                        try {
+                          // Compress & convert to base64
+                          const base64 = await new Promise<string>((resolve, reject) => {
+                            const reader = new FileReader();
+                            const img = new Image();
+                            reader.onload = (ev) => {
+                              img.onload = () => {
+                                const MAX = 1200;
+                                const scale = Math.min(1, MAX / Math.max(img.width, img.height));
+                                const canvas = document.createElement("canvas");
+                                canvas.width  = Math.round(img.width  * scale);
+                                canvas.height = Math.round(img.height * scale);
+                                canvas.getContext("2d")!.drawImage(img, 0, 0, canvas.width, canvas.height);
+                                resolve(canvas.toDataURL("image/jpeg", 0.75));
+                              };
+                              img.onerror = reject;
+                              img.src = ev.target?.result as string;
+                            };
+                            reader.onerror = reject;
+                            reader.readAsDataURL(file);
+                          });
+
+                          const res = await adminFetch(`/api/admin/kyc/${riderId}`, {
+                            method: "PATCH",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({ field: kycField, base64 }),
+                          });
+                          const json = await res.json();
+                          if (!res.ok) throw new Error(json.error || "Upload failed");
+
+                          toast.success(`${doc.label} uploaded successfully`);
+                          // Invalidate both the rider data and signed URLs
+                          queryClient.invalidateQueries({ queryKey: ["rider-full", riderId] });
+                          queryClient.invalidateQueries({ queryKey: ["kyc-signed-urls", riderId] });
+                        } catch (err) {
+                          toast.error(err instanceof Error ? err.message : "Upload failed");
+                        } finally {
+                          setKycUploading(null);
+                        }
+                      };
+
                       return (
-                        <button
-                          key={doc.label}
-                          disabled={!url}
-                          onClick={() => url && setLightboxUrl(url)}
-                          className={`group relative flex flex-col items-center justify-center rounded-lg border-2 border-dashed p-4 text-center transition-colors ${
-                            url
-                              ? "border-primary/30 hover:border-primary hover:bg-primary/5 cursor-pointer"
-                              : "border-muted opacity-50 cursor-not-allowed"
-                          }`}
-                        >
-                          {loading && hasRaw ? (
-                            <>
-                              <Loader2 className="h-8 w-8 text-muted mb-1 animate-spin" />
-                              <span className="text-xs text-muted-foreground">{doc.label}</span>
-                            </>
-                          ) : url ? (
-                            <>
-                              {/* eslint-disable-next-line @next/next/no-img-element */}
-                              <img src={url} alt={doc.label} className="h-16 w-16 rounded object-cover mb-2" />
-                              <span className="text-xs font-medium text-primary group-hover:underline">{doc.label}</span>
-                              <Eye className="absolute top-2 right-2 h-3.5 w-3.5 text-primary/60 opacity-0 group-hover:opacity-100 transition-opacity" />
-                            </>
-                          ) : (
-                            <>
-                              <CreditCard className="h-8 w-8 text-muted mb-1" />
-                              <span className="text-xs text-muted-foreground">{doc.label}</span>
-                              <span className="text-[10px] text-muted-foreground">Not uploaded</span>
-                            </>
+                        <div key={doc.label} className="relative group">
+                          {/* Hidden file input — triggered by clicking the slot */}
+                          {isSuperAdmin && (
+                            <input
+                              id={`kyc-upload-${kycField}`}
+                              type="file"
+                              accept="image/*"
+                              className="sr-only"
+                              onChange={handleFileChange}
+                              disabled={isUploadingThis}
+                            />
                           )}
-                        </button>
+
+                          <button
+                            disabled={isUploadingThis || (!!loading && hasRaw)}
+                            onClick={() => {
+                              if (isSuperAdmin) {
+                                // Always trigger upload picker (for both empty and existing docs)
+                                document.getElementById(`kyc-upload-${kycField}`)?.click();
+                              } else if (url) {
+                                setLightboxUrl(url);
+                              }
+                            }}
+                            className={`w-full flex flex-col items-center justify-center rounded-xl border-2 p-4 text-center transition-all ${
+                              isUploadingThis
+                                ? "border-blue-300 bg-blue-50 cursor-wait"
+                                : url
+                                ? isSuperAdmin
+                                  ? "border-primary/30 hover:border-primary hover:bg-primary/5 cursor-pointer"
+                                  : "border-primary/30 hover:border-primary hover:bg-primary/5 cursor-pointer"
+                                : isSuperAdmin
+                                ? "border-dashed border-slate-300 hover:border-primary hover:bg-primary/5 cursor-pointer"
+                                : "border-dashed border-muted opacity-50 cursor-not-allowed"
+                            }`}
+                          >
+                            {isUploadingThis ? (
+                              <>
+                                <Loader2 className="h-8 w-8 text-primary mb-2 animate-spin" />
+                                <span className="text-xs text-primary font-medium">Uploading...</span>
+                              </>
+                            ) : loading && hasRaw ? (
+                              <>
+                                <Loader2 className="h-8 w-8 text-muted mb-1 animate-spin" />
+                                <span className="text-xs text-muted-foreground">{doc.label}</span>
+                              </>
+                            ) : url ? (
+                              <>
+                                {/* eslint-disable-next-line @next/next/no-img-element */}
+                                <img src={url} alt={doc.label} className="h-16 w-16 rounded-lg object-cover mb-2 shadow-sm" />
+                                <span className="text-xs font-semibold text-slate-700">{doc.label}</span>
+                                {isSuperAdmin ? (
+                                  <span className="text-[10px] text-primary opacity-0 group-hover:opacity-100 transition-opacity mt-0.5 flex items-center gap-0.5">
+                                    <Upload className="h-2.5 w-2.5" /> Replace
+                                  </span>
+                                ) : (
+                                  <Eye className="absolute top-2 right-2 h-3.5 w-3.5 text-primary/60 opacity-0 group-hover:opacity-100 transition-opacity" />
+                                )}
+                              </>
+                            ) : (
+                              <>
+                                {isSuperAdmin ? (
+                                  <>
+                                    <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center mb-2">
+                                      <Upload className="h-5 w-5 text-primary" />
+                                    </div>
+                                    <span className="text-xs font-medium text-slate-600">{doc.label}</span>
+                                    <span className="text-[10px] text-primary mt-0.5">Click to upload</span>
+                                  </>
+                                ) : (
+                                  <>
+                                    <CreditCard className="h-8 w-8 text-muted mb-1" />
+                                    <span className="text-xs text-muted-foreground">{doc.label}</span>
+                                    <span className="text-[10px] text-muted-foreground">Not uploaded</span>
+                                  </>
+                                )}
+                              </>
+                            )}
+                          </button>
+
+                          {/* View full-size overlay for existing docs (non-upload click for super admin) */}
+                          {url && isSuperAdmin && (
+                            <button
+                              onClick={() => setLightboxUrl(url)}
+                              className="absolute top-2 right-2 h-6 w-6 rounded-full bg-white shadow border border-slate-200 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                              title="View full size"
+                            >
+                              <Eye className="h-3 w-3 text-slate-600" />
+                            </button>
+                          )}
+                        </div>
                       );
                     })}
                   </div>

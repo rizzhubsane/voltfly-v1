@@ -33,9 +33,9 @@ export async function POST(request: Request) {
       // 1. Fetch rider to verify status + get gig_company for pricing split
       const { data: rider, error: riderErr } = await supabaseAdmin
         .from("riders")
-        .select("id, name, status, gig_company, wallet_balance")
+        .select("id, name, status, wallet_balance")
         .eq("id", riderId)
-        .single();
+        .single() as { data: { id: string; name: string; status: string; wallet_balance: number | null } | null; error: unknown };
 
       if (riderErr || !rider) {
         return NextResponse.json({ error: "Rider not found" }, { status: 404 });
