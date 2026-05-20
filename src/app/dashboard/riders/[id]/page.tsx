@@ -2361,7 +2361,7 @@ export default function RiderDetailPage() {
                       const matches = (sortedAvailableVehicles as { id: string; vehicle_id?: string; chassis_number: string; hubs?: { name: string } }[]).filter(
                         (v) => !query ||
                           (v.vehicle_id || "").toUpperCase().includes(query) ||
-                          v.chassis_number.toUpperCase().includes(query) ||
+                          (v.chassis_number || "").toUpperCase().includes(query) ||
                           (v.hubs?.name || "").toUpperCase().includes(query)
                       );
                       if (!matches.length) return null;
