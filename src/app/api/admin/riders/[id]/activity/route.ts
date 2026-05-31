@@ -78,22 +78,11 @@ export async function GET(
       payment_date: p.paid_at || p.created_at,
     }));
 
-    // Normalize security_deposit rows as synthetic payment records
-    const depositRows = (depositsRes.data || []).map((d) => ({
-      id: d.id,
-      rider_id: d.rider_id,
-      amount: Number(d.amount_paid),
-      plan_type: "security_deposit",
-      payment_method: "cash",
-      method: "cash",
-      status: d.status === "held" || d.status === "paid" ? "paid" : d.status,
-      payment_date: d.created_at,
-      created_at: d.created_at,
-      notes: "Security Deposit",
-    }));
+    // Security deposits are now fully logged in the 'payments' table directly,
+    // so we no longer need to synthesize them from the 'security_deposits' table.
 
     // Merge and sort by date descending
-    const allPayments = [...paymentRows, ...depositRows].sort(
+    const allPayments = [...paymentRows].sort(
       (a, b) => new Date(b.payment_date ?? b.created_at ?? "1970-01-01").getTime() - new Date(a.payment_date ?? a.created_at ?? "1970-01-01").getTime()
     );
 

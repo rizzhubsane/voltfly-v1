@@ -1,7 +1,7 @@
 "use client";
 import { adminFetch } from "@/lib/adminFetch";
 import { ExpandableNote } from "@/components/shared/ExpandableNote";
-
+import Link from "next/link";
 
 import { useState, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -596,7 +596,11 @@ export default function PaymentsPage() {
                 ) : (
                   filteredPayments.map((p) => (
                     <TableRow key={p.id}>
-                      <TableCell className="font-medium">{p.riders?.name || "Unknown"}</TableCell>
+                      <TableCell className="font-medium">
+                        <Link href={`/dashboard/riders/${p.rider_id}`} className="text-[#0D2D6B] hover:underline">
+                          {p.riders?.name || "Unknown"}
+                        </Link>
+                      </TableCell>
                       <TableCell className="text-sm text-muted-foreground">
                         {(() => {
                           const d = p.paid_at ?? p.created_at;
@@ -699,7 +703,9 @@ export default function PaymentsPage() {
                     <TableRow key={r.id}>
                       <TableCell>
                         <div className="flex flex-col">
-                          <span className="font-medium">{r.name}</span>
+                          <Link href={`/dashboard/riders/${r.id}`} className="font-medium text-[#0D2D6B] hover:underline">
+                            {r.name}
+                          </Link>
                           <span className="text-xs text-muted-foreground">{r.phone_1}</span>
                         </div>
                       </TableCell>
@@ -779,7 +785,11 @@ export default function PaymentsPage() {
                 ) : (
                   deposits.map((d) => (
                     <TableRow key={d.id}>
-                      <TableCell className="font-medium">{d.riders?.name || "Unknown"}</TableCell>
+                      <TableCell className="font-medium">
+                        <Link href={`/dashboard/riders/${d.rider_id}`} className="text-[#0D2D6B] hover:underline">
+                          {d.riders?.name || "Unknown"}
+                        </Link>
+                      </TableCell>
                       <TableCell className="font-bold">₹{(d.amount_paid ?? 0).toLocaleString()}</TableCell>
                       <TableCell className="text-sm text-muted-foreground">
                         {d.created_at ? format(new Date(d.created_at), "dd MMM yyyy") : "—"}

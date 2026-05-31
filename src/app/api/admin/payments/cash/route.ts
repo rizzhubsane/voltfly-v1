@@ -62,25 +62,64 @@ export async function POST(request: Request) {
       const rentalCredit = Math.max(0, amount - pricing.securityDeposit - pricing.onboardingFee);
       const breakdown = `₹${pricing.securityDeposit} deposit + ₹${pricing.onboardingFee} fee + ₹${rentalCredit} wallet credit`;
 
-      // 2. Insert ONE payment row (total amount) — this is what accountants see
-      const { data: payment, error: paymentError } = await supabaseAdmin
+      // 2a. Insert security deposit row
+      const { data: sdPayment, error: sdError } = await supabaseAdmin
         .from("payments")
         .insert({
           rider_id:    riderId,
-          amount:      amount,          // total received — single row
-          plan_type:   "onboarding",
+          amount:      pricing.securityDeposit,
+          plan_type:   "security_deposit",
           method:      paymentMethod,
           status:      "paid",
           due_date:    paidDate.toISOString().slice(0, 10),
           paid_at:     paidDate.toISOString(),
           recorded_by: adminId,
-          notes:       `Onboarding payment. Split: ${breakdown}. ${notes ? notes + " " : ""}(Logged by: ${adminName})`,
+          notes:       `Cash security deposit. ${notes ? notes + " " : ""}(Logged by: ${adminName})`,
           created_at:  nowISO,
         })
         .select()
         .single();
+      if (sdError) throw sdError;
 
-      if (paymentError) throw paymentError;
+      // 2b. Insert onboarding fee row
+      if (pricing.onboardingFee > 0) {
+        const { error: feeError } = await supabaseAdmin
+          .from("payments")
+          .insert({
+            rider_id:    riderId,
+            amount:      pricing.onboardingFee,
+            plan_type:   "onboarding_fee",
+            method:      paymentMethod,
+            status:      "paid",
+            due_date:    paidDate.toISOString().slice(0, 10),
+            paid_at:     paidDate.toISOString(),
+            recorded_by: adminId,
+            notes:       `Cash onboarding fee (${pricing.operator}). (Logged by: ${adminName})`,
+            created_at:  nowISO,
+          });
+        if (feeError) throw feeError;
+      }
+
+      // 2c. Insert rental credit row (if any)
+      if (rentalCredit > 0) {
+        const { error: rentError } = await supabaseAdmin
+          .from("payments")
+          .insert({
+            rider_id:    riderId,
+            amount:      rentalCredit,
+            plan_type:   "wallet_topup", // Or custom/rent based on context, wallet_topup reflects credit
+            method:      paymentMethod,
+            status:      "paid",
+            due_date:    paidDate.toISOString().slice(0, 10),
+            paid_at:     paidDate.toISOString(),
+            recorded_by: adminId,
+            notes:       `Cash onboarding rental credit. ${breakdown}. (Logged by: ${adminName})`,
+            created_at:  nowISO,
+          });
+        if (rentError) throw rentError;
+      }
+      
+      const payment = sdPayment; // Use sdPayment as reference for wallet_transaction
 
       // 3. Record security deposit in security_deposits table
       await supabaseAdmin.from("security_deposits").upsert(
