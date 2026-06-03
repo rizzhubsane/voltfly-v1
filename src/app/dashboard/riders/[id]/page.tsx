@@ -1137,9 +1137,9 @@ export default function RiderDetailPage() {
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8">
                     <InfoRow label="Full Name" value={rider.name} />
                     <InfoRow label="Phone 1" value={rider.phone_1} />
-                    <InfoRow label="Phone 2" value={rider.phone_2} />
+                    <InfoRow label="Phone 2" value={rider.phone_2 || "-"} />
                     <InfoRow label="Hub" value={rider.hubs?.name} />
-                    <InfoRow label="Status" value={rider.status} />
+                    <InfoRow label="Status" value={STATUS_CONFIG[rider.status as RiderStatus]?.label || rider.status} />
                     <InfoRow label="Gig Company" value={(rider as Record<string, unknown>).gig_company as string || "Unspecified"} />
                     <InfoRow label="Joined" value={rider.created_at ? format(new Date(rider.created_at), "dd MMM yyyy") : null} />
                   </div>
@@ -1618,8 +1618,7 @@ export default function RiderDetailPage() {
 
                   <div className="flex justify-end pt-2">
                     <Button 
-                      variant="outline" 
-                      className="gap-2 text-red-600 border-red-200 hover:bg-red-50 hover:text-red-700"
+                      className="gap-2 bg-red-600 text-white hover:bg-red-700"
                       disabled={unassignVehicleMutation.isPending}
                       onClick={() => unassignVehicleMutation.mutate()}
                     >
