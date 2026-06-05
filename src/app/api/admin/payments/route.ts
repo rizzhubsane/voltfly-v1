@@ -111,7 +111,7 @@ export async function GET(request: Request) {
     const { data: ridersData } = riderIdsForPayment.length > 0
       ? await supabaseAdmin
           .from("riders")
-          .select("id, name, phone_1, hub_id")
+          .select("id, name, phone_1, hub_id, vehicle_id")
           .in("id", riderIdsForPayment)
       : { data: [] };
 
@@ -120,9 +120,10 @@ export async function GET(request: Request) {
       ...p,
       riders: riderByIdList.get(p.rider_id)
         ? {
-            name:    riderByIdList.get(p.rider_id)!.name,
-            phone_1: riderByIdList.get(p.rider_id)!.phone_1,
-            hub_id:  riderByIdList.get(p.rider_id)!.hub_id,
+            name:       riderByIdList.get(p.rider_id)!.name,
+            phone_1:    riderByIdList.get(p.rider_id)!.phone_1,
+            hub_id:     riderByIdList.get(p.rider_id)!.hub_id,
+            vehicle_id: riderByIdList.get(p.rider_id)!.vehicle_id,
           }
         : null,
     }));

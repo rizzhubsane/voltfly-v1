@@ -58,6 +58,7 @@ interface PaymentItem {
     name: string;
     phone_1?: string;
     hub_id?: string | null;
+    vehicle_id?: string | null;
   } | null;
 }
 
@@ -271,9 +272,9 @@ export default function PaymentsPage() {
 
   // ── Stats ────────────────────────────────────────────────────────────────
   const paymentStats = useMemo(() => {
-    let today = 0;
-    let week = 0;
-    let month = 0;
+    let today = 0, todayCash = 0, todayKotak = 0, todayRazorpay = 0;
+    let week = 0, weekCash = 0, weekKotak = 0, weekRazorpay = 0;
+    let month = 0, monthCash = 0, monthKotak = 0, monthRazorpay = 0;
     
     const now = new Date();
     const todayStart = startOfDay(now);
@@ -292,12 +293,38 @@ export default function PaymentsPage() {
       if (!dStr) return;
       
       const d = new Date(dStr);
-      if (d >= todayStart) today += p.amount;
-      if (d >= weekStart) week += p.amount;
-      if (d >= monthStart) month += p.amount;
+      const amt = p.amount || 0;
+      
+      const method = (p.method || "").toLowerCase();
+      const isCash = method === "cash";
+      const isRazorpay = method.includes("razorpay");
+      const isKotak = method.includes("upi") || method.includes("online");
+      
+      if (d >= todayStart) {
+        today += amt;
+        if (isCash) todayCash += amt;
+        else if (isRazorpay) todayRazorpay += amt;
+        else if (isKotak) todayKotak += amt;
+      }
+      if (d >= weekStart) {
+        week += amt;
+        if (isCash) weekCash += amt;
+        else if (isRazorpay) weekRazorpay += amt;
+        else if (isKotak) weekKotak += amt;
+      }
+      if (d >= monthStart) {
+        month += amt;
+        if (isCash) monthCash += amt;
+        else if (isRazorpay) monthRazorpay += amt;
+        else if (isKotak) monthKotak += amt;
+      }
     });
 
-    return { today, week, month };
+    return { 
+      today, todayCash, todayKotak, todayRazorpay,
+      week, weekCash, weekKotak, weekRazorpay,
+      month, monthCash, monthKotak, monthRazorpay
+    };
   }, [payments, hubFilter, role, hub_id]);
 
   // ── Filtering ────────────────────────────────────────────────────────────
@@ -414,9 +441,14 @@ export default function PaymentsPage() {
                 <div className="p-3 bg-blue-50 text-blue-600 rounded-xl">
                   <span className="font-serif text-xl font-bold">₹</span>
                 </div>
-                <div>
+                <div className="w-full">
                   <p className="text-sm font-medium text-slate-500">Today&apos;s Collection</p>
                   <p className="text-2xl font-bold text-[#0D2D6B]">₹{paymentStats.today.toLocaleString()}</p>
+                  <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-2 text-sm text-slate-600 font-medium">
+                    <span>Cash: ₹{paymentStats.todayCash.toLocaleString()}</span>
+                    <span>Kotak: ₹{paymentStats.todayKotak.toLocaleString()}</span>
+                    <span>Razorpay: ₹{paymentStats.todayRazorpay.toLocaleString()}</span>
+                  </div>
                 </div>
               </CardContent>
             </Card>
@@ -425,9 +457,14 @@ export default function PaymentsPage() {
                 <div className="p-3 bg-emerald-50 text-emerald-600 rounded-xl">
                   <span className="font-serif text-xl font-bold">₹</span>
                 </div>
-                <div>
+                <div className="w-full">
                   <p className="text-sm font-medium text-slate-500">This Week</p>
                   <p className="text-2xl font-bold text-[#0D2D6B]">₹{paymentStats.week.toLocaleString()}</p>
+                  <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-2 text-sm text-slate-600 font-medium">
+                    <span>Cash: ₹{paymentStats.weekCash.toLocaleString()}</span>
+                    <span>Kotak: ₹{paymentStats.weekKotak.toLocaleString()}</span>
+                    <span>Razorpay: ₹{paymentStats.weekRazorpay.toLocaleString()}</span>
+                  </div>
                 </div>
               </CardContent>
             </Card>
@@ -436,9 +473,14 @@ export default function PaymentsPage() {
                 <div className="p-3 bg-purple-50 text-purple-600 rounded-xl">
                   <span className="font-serif text-xl font-bold">₹</span>
                 </div>
-                <div>
+                <div className="w-full">
                   <p className="text-sm font-medium text-slate-500">This Month</p>
                   <p className="text-2xl font-bold text-[#0D2D6B]">₹{paymentStats.month.toLocaleString()}</p>
+                  <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-2 text-sm text-slate-600 font-medium">
+                    <span>Cash: ₹{paymentStats.monthCash.toLocaleString()}</span>
+                    <span>Kotak: ₹{paymentStats.monthKotak.toLocaleString()}</span>
+                    <span>Razorpay: ₹{paymentStats.monthRazorpay.toLocaleString()}</span>
+                  </div>
                 </div>
               </CardContent>
             </Card>
@@ -537,9 +579,9 @@ export default function PaymentsPage() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All methods</SelectItem>
-                  <SelectItem value="upi">UPI</SelectItem>
+                  <SelectItem value="upi">Kotak UPI</SelectItem>
                   <SelectItem value="cash">Cash</SelectItem>
-                  <SelectItem value="mandate">Mandate</SelectItem>
+                  <SelectItem value="razorpay">Razorpay</SelectItem>
                 </SelectContent>
               </Select>
 
@@ -573,7 +615,7 @@ export default function PaymentsPage() {
                   <TableHead>Amount</TableHead>
                   <TableHead>Method</TableHead>
                   <TableHead>Notes</TableHead>
-                  <TableHead>Status</TableHead>
+                  <TableHead>Vehicle ID</TableHead>
                   <TableHead className="w-[50px]"></TableHead>
                 </TableRow>
               </TableHeader>
@@ -638,9 +680,13 @@ export default function PaymentsPage() {
                         <ExpandableNote note={p.notes} />
                       </TableCell>
                       <TableCell>
-                        <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold ${STATUS_CONFIG[p.status]?.class || "bg-slate-100 text-slate-700"}`}>
-                          {STATUS_CONFIG[p.status]?.label || p.status}
-                        </span>
+                        {p.riders?.vehicle_id ? (
+                          <span className="font-mono text-xs px-2 py-1 bg-slate-100 rounded-md text-slate-700 border border-slate-200">
+                            {p.riders.vehicle_id}
+                          </span>
+                        ) : (
+                          <span className="text-muted-foreground">—</span>
+                        )}
                       </TableCell>
                       <TableCell>
                         <ChevronRight className="h-4 w-4 text-slate-300" />
