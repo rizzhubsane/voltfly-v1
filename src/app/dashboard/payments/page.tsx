@@ -610,12 +610,12 @@ export default function PaymentsPage() {
               <TableHeader className="bg-slate-50">
                 <TableRow>
                   <TableHead>Rider</TableHead>
-                  <TableHead>Date</TableHead>
+                  <TableHead>Vehicle ID</TableHead>
                   <TableHead>Plan</TableHead>
                   <TableHead>Amount</TableHead>
                   <TableHead>Method</TableHead>
                   <TableHead>Notes</TableHead>
-                  <TableHead>Vehicle ID</TableHead>
+                  <TableHead>Date</TableHead>
                   <TableHead className="w-[50px]"></TableHead>
                 </TableRow>
               </TableHeader>
@@ -643,11 +643,14 @@ export default function PaymentsPage() {
                           {p.riders?.name || "Unknown"}
                         </Link>
                       </TableCell>
-                      <TableCell className="text-sm text-muted-foreground">
-                        {(() => {
-                          const d = p.paid_at ?? p.created_at;
-                          return d ? format(new Date(d), "dd MMM yyyy") : "—";
-                        })()}
+                      <TableCell>
+                        {p.riders?.vehicle_id ? (
+                          <span className="font-mono text-xs px-2 py-1 bg-slate-100 rounded-md text-slate-700 border border-slate-200">
+                            {p.riders.vehicle_id}
+                          </span>
+                        ) : (
+                          <span className="text-muted-foreground">—</span>
+                        )}
                       </TableCell>
                       <TableCell>
                         <Badge
@@ -679,14 +682,11 @@ export default function PaymentsPage() {
                       <TableCell className="max-w-[200px]">
                         <ExpandableNote note={p.notes} />
                       </TableCell>
-                      <TableCell>
-                        {p.riders?.vehicle_id ? (
-                          <span className="font-mono text-xs px-2 py-1 bg-slate-100 rounded-md text-slate-700 border border-slate-200">
-                            {p.riders.vehicle_id}
-                          </span>
-                        ) : (
-                          <span className="text-muted-foreground">—</span>
-                        )}
+                      <TableCell className="text-sm text-muted-foreground">
+                        {(() => {
+                          const d = p.paid_at ?? p.created_at;
+                          return d ? format(new Date(d), "dd MMM yyyy") : "—";
+                        })()}
                       </TableCell>
                       <TableCell>
                         <ChevronRight className="h-4 w-4 text-slate-300" />
