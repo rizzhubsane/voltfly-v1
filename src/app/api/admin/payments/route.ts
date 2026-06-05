@@ -111,11 +111,19 @@ export async function GET(request: Request) {
     const { data: ridersData } = riderIdsForPayment.length > 0
       ? await supabaseAdmin
           .from("riders")
-          .select("id, name, phone_1, hub_id, vehicle_id")
+          .select("id, name, phone_1, hub_id")
           .in("id", riderIdsForPayment)
       : { data: [] };
 
+    const { data: vehiclesData } = riderIdsForPayment.length > 0
+      ? await supabaseAdmin
+          .from("vehicles")
+          .select("vehicle_id, assigned_rider_id")
+          .in("assigned_rider_id", riderIdsForPayment)
+      : { data: [] };
+
     const riderByIdList = new Map((ridersData ?? []).map((r) => [r.id, r]));
+    const vehicleByRiderId = new Map((vehiclesData ?? []).filter(v => v.assigned_rider_id).map((v) => [v.assigned_rider_id, v.vehicle_id]));
     const enrichedList  = rows.map((p) => ({
       ...p,
       riders: riderByIdList.get(p.rider_id)
@@ -123,7 +131,7 @@ export async function GET(request: Request) {
             name:       riderByIdList.get(p.rider_id)!.name,
             phone_1:    riderByIdList.get(p.rider_id)!.phone_1,
             hub_id:     riderByIdList.get(p.rider_id)!.hub_id,
-            vehicle_id: riderByIdList.get(p.rider_id)!.vehicle_id,
+            vehicle_id: vehicleByRiderId.get(p.rider_id) || null,
           }
         : null,
     }));
