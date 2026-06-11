@@ -453,13 +453,16 @@ export default function RiderDetailPage() {
     [availableVehicles]
   );
 
-  /** Returns vehicles.id when the typed Vehicle ID matches an available row; updates selection state. */
+  /** Returns vehicles.id when the typed query matches an available row by vehicle_id, VIN, chassis (reg), or battery_operator (driver ID). */
   const resolveAssignVehicleIdInput = useCallback((): string | null => {
     const q = assignVehicleIdInput.trim().toUpperCase();
     if (!q || !availableVehicles?.length) return null;
-    const found = availableVehicles.find(
-      (v: { id: string; vehicle_id?: string | null }) =>
-        (v.vehicle_id || "").trim().toUpperCase() === q
+    const found = (availableVehicles as { id: string; vehicle_id?: string | null; vin_number?: string | null; chassis_number?: string | null; battery_operator?: string | null }[]).find(
+      (v) =>
+        (v.vehicle_id || "").trim().toUpperCase() === q ||
+        (v.vin_number || "").trim().toUpperCase() === q ||
+        (v.chassis_number || "").trim().toUpperCase() === q ||
+        (v.battery_operator || "").trim().toUpperCase() === q
     );
     if (found) {
       setSelectedVehicleId(found.id);
@@ -2329,12 +2332,12 @@ export default function RiderDetailPage() {
                 </div>
               ) : (
                 <div className="space-y-2">
-                  <label className="text-sm font-medium">Vehicle ID</label>
+                  <label className="text-sm font-medium">Search Vehicle</label>
                   {/* ── Combobox: type to filter, click to select ── */}
                   <div className="relative">
                     <input
                       type="text"
-                      placeholder="Type to search (e.g. VFEL1001)…"
+                      placeholder="Vehicle ID, VIN, Reg No, or Driver ID…"
                       value={assignVehicleIdInput}
                       className="flex h-10 w-full rounded-md border border-input bg-background px-3 pr-8 text-sm font-mono ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring placeholder:font-sans placeholder:text-muted-foreground"
                       autoComplete="off"
@@ -2357,43 +2360,55 @@ export default function RiderDetailPage() {
 
                     {comboboxOpen && (() => {
                       const query = assignVehicleIdInput.trim().toUpperCase();
-                      const matches = (sortedAvailableVehicles as { id: string; vehicle_id?: string; chassis_number: string; hubs?: { name: string } }[]).filter(
+                      const matches = (sortedAvailableVehicles as { id: string; vehicle_id?: string; chassis_number?: string | null; vin_number?: string | null; battery_operator?: string | null; hubs?: { name: string } }[]).filter(
                         (v) => !query ||
                           (v.vehicle_id || "").toUpperCase().includes(query) ||
+                          (v.vin_number || "").toUpperCase().includes(query) ||
                           (v.chassis_number || "").toUpperCase().includes(query) ||
+                          (v.battery_operator || "").toUpperCase().includes(query) ||
                           (v.hubs?.name || "").toUpperCase().includes(query)
                       );
                       if (!matches.length) return null;
                       return (
                         <div className="absolute top-full left-0 right-0 mt-1 z-50 bg-white border border-slate-200 rounded-lg shadow-xl max-h-52 overflow-y-auto ring-1 ring-black/5">
-                          {matches.map((v) => (
-                            <button
-                              key={v.id}
-                              type="button"
-                              className={`w-full text-left px-3 py-2 text-sm flex items-center justify-between hover:bg-slate-50 transition-colors ${
-                                selectedVehicleId === v.id ? "bg-primary/5 text-primary font-semibold" : ""
-                              }`}
-                              onMouseDown={(e) => {
-                                e.preventDefault();
-                                setSelectedVehicleId(v.id);
-                                setAssignVehicleIdInput(v.vehicle_id || v.chassis_number.slice(-6));
-                                setComboboxOpen(false);
-                              }}
-                            >
-                              <span className="font-mono font-medium">{v.vehicle_id || v.chassis_number.slice(-6)}</span>
-                              <span className="text-xs text-muted-foreground">{v.hubs?.name || "No Hub"}</span>
-                            </button>
-                          ))}
+                          {matches.map((v) => {
+                            const secondary = v.chassis_number || v.vin_number || v.battery_operator || "";
+                            return (
+                              <button
+                                key={v.id}
+                                type="button"
+                                className={`w-full text-left px-3 py-2 text-sm flex items-center justify-between hover:bg-slate-50 transition-colors ${
+                                  selectedVehicleId === v.id ? "bg-primary/5 text-primary font-semibold" : ""
+                                }`}
+                                onMouseDown={(e) => {
+                                  e.preventDefault();
+                                  setSelectedVehicleId(v.id);
+                                  setAssignVehicleIdInput(v.vehicle_id || (v.chassis_number || "").slice(-6));
+                                  setComboboxOpen(false);
+                                }}
+                              >
+                                <div className="flex flex-col gap-0.5">
+                                  <span className="font-mono font-medium">{v.vehicle_id || (v.chassis_number || "").slice(-6)}</span>
+                                  {secondary && <span className="text-xs text-muted-foreground font-mono">{secondary}</span>}
+                                </div>
+                                <span className="text-xs text-muted-foreground shrink-0 ml-2">{v.hubs?.name || "No Hub"}</span>
+                              </button>
+                            );
+                          })}
                         </div>
                       );
                     })()}
                   </div>
                   {selectedVehicleId && (() => {
-                    const v = (sortedAvailableVehicles as { id: string; vehicle_id?: string; chassis_number: string; hubs?: { name: string } }[]).find(x => x.id === selectedVehicleId);
+                    const v = (sortedAvailableVehicles as { id: string; vehicle_id?: string; chassis_number?: string | null; vin_number?: string | null; battery_operator?: string | null; hubs?: { name: string } }[]).find(x => x.id === selectedVehicleId);
                     return v ? (
                       <p className="text-xs text-emerald-700 font-medium flex items-center gap-1">
                         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" className="shrink-0"><polyline points="20 6 9 17 4 12"/></svg>
-                        Selected: {v.vehicle_id || v.chassis_number.slice(-6)} — {v.hubs?.name || "No Hub"} · Chassis: {v.chassis_number}
+                        Selected: <span className="font-mono">{v.vehicle_id || (v.chassis_number || "").slice(-6)}</span>
+                        {v.chassis_number && <span className="text-emerald-600 font-normal"> · Reg: {v.chassis_number}</span>}
+                        {v.vin_number && <span className="text-emerald-600 font-normal"> · VIN: {v.vin_number}</span>}
+                        {v.battery_operator && <span className="text-emerald-600 font-normal"> · Driver ID: {v.battery_operator}</span>}
+                        <span className="text-emerald-600 font-normal"> — {v.hubs?.name || "No Hub"}</span>
                       </p>
                     ) : null;
                   })()}
