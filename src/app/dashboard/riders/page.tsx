@@ -318,6 +318,7 @@ export default function RidersPage() {
   const [search, setSearch] = useState("");
   const [hubFilter, setHubFilter] = useState("All");
   const [statusFilter, setStatusFilter] = useState("all");
+  const [dateFilter, setDateFilter] = useState(""); // "YYYY-MM-DD"
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
   const sentinelRef = useRef<HTMLDivElement>(null);
 
@@ -439,6 +440,15 @@ export default function RidersPage() {
       );
     }
 
+    // Date filter — match riders whose joining date equals the selected date
+    if (dateFilter) {
+      list = list.filter((r) => {
+        if (!r.created_at) return false;
+        const joined = format(new Date(r.created_at), "yyyy-MM-dd");
+        return joined === dateFilter;
+      });
+    }
+
     // Hub filter (super_admin only)
     if (isSuperAdmin && hubFilter !== "All") {
       list = list.filter(
@@ -453,7 +463,7 @@ export default function RidersPage() {
     }
 
     return list;
-  }, [allRiders, search, hubFilter, statusFilter, isSuperAdmin]);
+  }, [allRiders, search, dateFilter, hubFilter, statusFilter, isSuperAdmin]);
 
   // ── Infinite scroll slice ────────────────────────────────────────────────
   const visible = useMemo(
@@ -600,6 +610,26 @@ export default function RidersPage() {
         <div className="flex items-center gap-2 flex-wrap">
           <Filter className="h-4 w-4 text-muted-foreground hidden sm:block" />
 
+          {/* Date (joining date) filter */}
+          <div className="relative flex items-center">
+            <input
+              type="date"
+              value={dateFilter}
+              onChange={(e) => { setDateFilter(e.target.value); resetPage(); }}
+              className="h-9 rounded-md border border-input bg-background px-3 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring text-slate-700"
+              title="Filter by joining date"
+            />
+            {dateFilter && (
+              <button
+                onClick={() => { setDateFilter(""); resetPage(); }}
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-slate-700 transition-colors"
+                title="Clear date filter"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            )}
+          </div>
+
           {/* Hub filter — only for super_admin */}
           {isSuperAdmin && (
             <select
@@ -644,9 +674,14 @@ export default function RidersPage() {
           {filtered.length}
         </span>{" "}
         rider{filtered.length !== 1 && "s"}
-        {search.trim() || hubFilter !== "All" || statusFilter !== "all"
+        {search.trim() || hubFilter !== "All" || statusFilter !== "all" || dateFilter
           ? " (filtered)"
           : ""}
+        {dateFilter && (
+          <span className="ml-1 text-xs text-[#0D2D6B] font-medium">
+            joined {format(new Date(dateFilter + "T00:00:00"), "d MMM yyyy")}
+          </span>
+        )}
       </p>
 
       {/* ── Table ────────────────────────────────────────────────────────── */}
