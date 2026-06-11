@@ -101,7 +101,8 @@ const STATUS_CONFIG: Record<string, { label: string; class: string }> = {
 const METHOD_CONFIG: Record<string, { label: string; icon: string; class: string }> = {
   cash:     { label: "Cash",        icon: "💵", class: "bg-emerald-50 text-emerald-700 border-emerald-200" },
   upi:      { label: "Kotak UPI",   icon: "📲", class: "bg-blue-50 text-blue-700 border-blue-200" },
-  razorpay: { label: "Razorpay",    icon: "💳", class: "bg-purple-50 text-purple-700 border-purple-200" },
+  razorpay:        { label: "Razorpay",    icon: "💳", class: "bg-purple-50 text-purple-700 border-purple-200" },
+  razorpay_online: { label: "Razorpay",    icon: "💳", class: "bg-purple-50 text-purple-700 border-purple-200" },
   online:   { label: "Online",      icon: "🌐", class: "bg-indigo-50 text-indigo-700 border-indigo-200" },
   mandate:  { label: "Mandate",     icon: "📄", class: "bg-slate-50 text-slate-700 border-slate-200" },
 };
@@ -332,7 +333,7 @@ export default function PaymentsPage() {
     return payments.filter(p => {
       const riderName = p.riders?.name?.toLowerCase() ?? "";
       const matchesSearch = !search.trim() || riderName.includes(search.toLowerCase().trim());
-      const matchesMethod = methodFilter === "all" || p.method === methodFilter;
+      const matchesMethod = methodFilter === "all" || p.method === methodFilter || (methodFilter === "razorpay" && p.method && p.method.includes("razorpay"));
       const matchesStatus = statusFilter === "all" || p.status === statusFilter;
 
       // Hub filter: use dropdown for all roles (hub_id is metadata only)
