@@ -47,6 +47,7 @@ import {
   Unlink,
   CheckSquare,
   X,
+  LogOut,
 } from "lucide-react";
 
 // ─── Constants ───────────────────────────────────────────────────────────────
@@ -325,7 +326,7 @@ export default function RidersPage() {
   // ── Bulk selection ────────────────────────────────────────────────────────
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [bulkLoading, setBulkLoading] = useState(false);
-  const [bulkConfirm, setBulkConfirm] = useState<null | "delete" | "block_swap" | "unblock_swap" | "unassign_vehicle">(null);
+  const [bulkConfirm, setBulkConfirm] = useState<null | "delete" | "block_swap" | "unblock_swap" | "unassign_vehicle" | "process_exit">(null);
 
   const toggleSelect = (id: string) =>
     setSelectedIds((prev) => {
@@ -967,6 +968,18 @@ export default function RidersPage() {
             Unblock Swap
           </Button>
 
+          {/* Process Exit */}
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={bulkLoading}
+            className="gap-1.5 text-xs h-8 border-indigo-200 text-indigo-700 hover:bg-indigo-50"
+            onClick={() => setBulkConfirm("process_exit")}
+          >
+            <LogOut className="h-3.5 w-3.5" />
+            Process Exit
+          </Button>
+
           {/* Delete */}
           <Button
             variant="outline"
@@ -999,6 +1012,7 @@ export default function RidersPage() {
               {bulkConfirm === "unassign_vehicle" && <><Unlink className="h-5 w-5 text-slate-500" /> Unassign Vehicle & Driver ID</>}
               {bulkConfirm === "block_swap" && <><Ban className="h-5 w-5 text-orange-500" /> Block Swap Access</>}
               {bulkConfirm === "unblock_swap" && <><RefreshCw className="h-5 w-5 text-emerald-500" /> Unblock Swap Access</>}
+              {bulkConfirm === "process_exit" && <><LogOut className="h-5 w-5 text-indigo-500" /> Process Exit</>}
             </DialogTitle>
             <DialogDescription>
               {bulkConfirm === "delete" &&

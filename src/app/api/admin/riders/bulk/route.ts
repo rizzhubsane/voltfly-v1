@@ -126,7 +126,37 @@ export async function POST(request: Request) {
       });
     }
 
-    // ── 3. DELETE RIDERS ───────────────────────────────────────────────────────
+    // ── 3. PROCESS EXIT ────────────────────────────────────────────────────────
+    if (action === "process_exit") {
+      // Clear assigned_rider_id from vehicles
+      await supabaseAdmin
+        .from("vehicles")
+        .update({ assigned_rider_id: null, assigned_at: null })
+        .in("assigned_rider_id", riderIds);
+
+      // Mark status as exited and clear driver_id
+      const { error, count } = await supabaseAdmin
+        .from("riders")
+        .update({ status: "exited", driver_id: null })
+        .in("id", riderIds)
+        .select("id");
+
+      if (error) throw error;
+
+      await logAdminActivity(supabaseAdmin, {
+        admin_id: adminId,
+        admin_name: adminName,
+        action_type: "bulk_process_exit",
+        entity_type: "rider",
+        entity_id: riderIds[0],
+        description: `Bulk processed exit for ${count} rider(s)`,
+        metadata: { rider_ids: riderIds },
+      });
+
+      return NextResponse.json({ success: true, count: riderIds.length });
+    }
+
+    // ── 4. DELETE RIDERS ───────────────────────────────────────────────────────
     if (action === "delete") {
       // Clear FK references before deleting
       await supabaseAdmin
