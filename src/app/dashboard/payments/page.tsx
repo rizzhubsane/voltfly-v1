@@ -331,8 +331,10 @@ export default function PaymentsPage() {
   // ── Filtering ────────────────────────────────────────────────────────────
   const filteredPayments = useMemo(() => {
     return payments.filter(p => {
-      const riderName = p.riders?.name?.toLowerCase() ?? "";
-      const matchesSearch = !search.trim() || riderName.includes(search.toLowerCase().trim());
+      const riderName  = p.riders?.name?.toLowerCase() ?? "";
+      const vehicleId   = (p.riders?.vehicle_id ?? "").toLowerCase();
+      const q           = search.toLowerCase().trim();
+      const matchesSearch = !q || riderName.includes(q) || vehicleId.includes(q);
       const matchesMethod = methodFilter === "all" || p.method === methodFilter || (methodFilter === "razorpay" && p.method && p.method.includes("razorpay"));
       const matchesStatus = statusFilter === "all" || p.status === statusFilter;
 
@@ -492,7 +494,7 @@ export default function PaymentsPage() {
               <div className="relative flex-1">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                 <Input 
-                  placeholder="Search rider..." 
+                  placeholder="Search by rider name or vehicle ID…"
                   className="pl-9 h-9" 
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
