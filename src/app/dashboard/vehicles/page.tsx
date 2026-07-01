@@ -387,34 +387,41 @@ export default function VehiclesPage() {
               <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Filters</span>
             </div>
 
-            <select
-              className="h-10 rounded-md border bg-white px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20"
-              value={hubFilter}
-              onChange={(e) => setHubFilter(e.target.value)}
-            >
-              <option value="all">All Hubs</option>
-              {hubs.map((h) => <option key={h.id} value={h.id}>{h.name}</option>)}
-            </select>
+            <Select value={hubFilter} onValueChange={setHubFilter}>
+              <SelectTrigger className="w-[180px] bg-white">
+                <SelectValue placeholder="All Hubs" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Hubs</SelectItem>
+                {hubs.map((h) => (
+                  <SelectItem key={h.id} value={h.id}>
+                    {h.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
 
-            <select
-              className="h-10 rounded-md border bg-white px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20"
-              value={operatorFilter}
-              onChange={(e) => setOperatorFilter(e.target.value)}
-            >
-              <option value="all">All Operators</option>
-              <option value="batterysmart">BatterySmart</option>
-              <option value="indofast">Sun Mobility</option>
-            </select>
+            <Select value={operatorFilter} onValueChange={setOperatorFilter}>
+              <SelectTrigger className="w-[180px] bg-white">
+                <SelectValue placeholder="All Operators" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Operators</SelectItem>
+                <SelectItem value="batterysmart">BatterySmart</SelectItem>
+                <SelectItem value="indofast">Sun Mobility</SelectItem>
+              </SelectContent>
+            </Select>
 
-            <select
-              className="h-10 rounded-md border bg-white px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20"
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value)}
-            >
-              <option value="all">Any Status</option>
-              <option value="assigned">Assigned</option>
-              <option value="available">Available</option>
-            </select>
+            <Select value={statusFilter} onValueChange={setStatusFilter}>
+              <SelectTrigger className="w-[180px] bg-white">
+                <SelectValue placeholder="Any Status" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Any Status</SelectItem>
+                <SelectItem value="assigned">Assigned</SelectItem>
+                <SelectItem value="available">Available</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
         </div>
 
