@@ -104,16 +104,21 @@ const STATUS_CONFIG: Record<
   },
 };
 
-const HUB_OPTIONS = ["All", "Okhla", "Jhandewalan"] as const;
+const BATTERY_OPERATOR_OPTIONS = [
+  { value: "all",          label: "All Operators" },
+  { value: "batterysmart", label: "Battery Smart" },
+  { value: "indofast",     label: "Sun Mobility" },
+  { value: "none",         label: "No Operator" },
+] as const;
 
 const STATUS_OPTIONS: { value: string; label: string }[] = [
-  { value: "all", label: "All Statuses" },
-  { value: "pending_kyc", label: "Pending KYC" },
+  { value: "all",           label: "All Statuses" },
+  { value: "pending_kyc",   label: "Pending KYC" },
   { value: "kyc_submitted", label: "KYC Submitted" },
-  { value: "kyc_approved", label: "KYC Approved" },
-  { value: "active", label: "Active" },
-  { value: "suspended", label: "Suspended" },
-  { value: "exited", label: "Exited" },
+  { value: "kyc_approved",  label: "KYC Approved" },
+  { value: "active",        label: "Active" },
+  { value: "suspended",     label: "Suspended" },
+  { value: "exited",        label: "Exited" },
 ];
 
 
@@ -317,7 +322,7 @@ export default function RidersPage() {
 
   // ── Filters ──────────────────────────────────────────────────────────────
   const [search, setSearch] = useState("");
-  const [hubFilter, setHubFilter] = useState("All");
+  const [operatorFilter, setOperatorFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
   const [dateFilter, setDateFilter] = useState(""); // "YYYY-MM-DD"
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
@@ -450,12 +455,13 @@ export default function RidersPage() {
       });
     }
 
-    // Hub filter (super_admin only)
-    if (isSuperAdmin && hubFilter !== "All") {
-      list = list.filter(
-        (r) =>
-          r.hubs?.name?.toLowerCase() === hubFilter.toLowerCase()
-      );
+    // Battery operator filter
+    if (operatorFilter !== "all") {
+      list = list.filter((r) => {
+        const op = (r as any).battery_operator as string | null;
+        if (operatorFilter === "none") return !op;
+        return op === operatorFilter;
+      });
     }
 
     // Status filter
@@ -464,7 +470,7 @@ export default function RidersPage() {
     }
 
     return list;
-  }, [allRiders, search, dateFilter, hubFilter, statusFilter, isSuperAdmin]);
+  }, [allRiders, search, dateFilter, operatorFilter, statusFilter]);
 
   // ── Infinite scroll slice ────────────────────────────────────────────────
   const visible = useMemo(
@@ -631,23 +637,21 @@ export default function RidersPage() {
             )}
           </div>
 
-          {/* Hub filter — only for super_admin */}
-          {isSuperAdmin && (
-            <select
-              value={hubFilter}
-              onChange={(e) => {
-                setHubFilter(e.target.value);
-                resetPage();
-              }}
-              className="h-9 rounded-md border border-input bg-background px-3 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring"
-            >
-              {HUB_OPTIONS.map((hub) => (
-                <option key={hub} value={hub}>
-                  {hub === "All" ? "All Hubs" : hub}
-                </option>
-              ))}
-            </select>
-          )}
+          {/* Battery Operator filter */}
+          <select
+            value={operatorFilter}
+            onChange={(e) => {
+              setOperatorFilter(e.target.value);
+              resetPage();
+            }}
+            className="h-9 rounded-md border border-input bg-background px-3 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring"
+          >
+            {BATTERY_OPERATOR_OPTIONS.map((opt) => (
+              <option key={opt.value} value={opt.value}>
+                {opt.label}
+              </option>
+            ))}
+          </select>
 
           {/* Status filter */}
           <select
@@ -675,7 +679,7 @@ export default function RidersPage() {
           {filtered.length}
         </span>{" "}
         rider{filtered.length !== 1 && "s"}
-        {search.trim() || hubFilter !== "All" || statusFilter !== "all" || dateFilter
+        {search.trim() || operatorFilter !== "all" || statusFilter !== "all" || dateFilter
           ? " (filtered)"
           : ""}
         {dateFilter && (

@@ -65,10 +65,10 @@ export async function GET(request: Request) {
       riderIds.length > 0
         ? supabaseAdmin
             .from("vehicles")
-            .select("assigned_rider_id, vehicle_id, chassis_number")
+            .select("assigned_rider_id, vehicle_id, chassis_number, battery_operator")
             .in("assigned_rider_id", riderIds)
         : Promise.resolve({
-            data: [] as { assigned_rider_id: string | null; vehicle_id: string | null; chassis_number: string }[],
+            data: [] as { assigned_rider_id: string | null; vehicle_id: string | null; chassis_number: string; battery_operator: string | null }[],
             error: null,
           }),
     ]);
@@ -78,21 +78,25 @@ export async function GET(request: Request) {
 
     const hubById = new Map((hubResult.data || []).map((h) => [h.id, h.name]));
 
-    // vehicle_id: prefer vehicle_id field, fall back to chassis_number
+    // vehicle_id + battery_operator: prefer vehicle_id field, fall back to chassis_number
     const vehicleByRider = new Map(
       (vehicleResult.data || [])
         .filter((v) => v.assigned_rider_id !== null)
         .map((v) => [
           v.assigned_rider_id as string,
-          v.vehicle_id || v.chassis_number || null,
+          {
+            vehicle_id: v.vehicle_id || v.chassis_number || null,
+            battery_operator: v.battery_operator ?? null,
+          },
         ])
     );
 
     const riders = (riderRows || []).map((r) => ({
       ...r,
       hubs: r.hub_id && hubById.get(r.hub_id) ? { name: hubById.get(r.hub_id)! } : null,
-      // vehicle_id is joined from vehicles; driver_id comes from r.driver_id directly
-      vehicle_id: vehicleByRider.get(r.id) ?? null,
+      // vehicle_id and battery_operator joined from vehicles
+      vehicle_id: vehicleByRider.get(r.id)?.vehicle_id ?? null,
+      battery_operator: vehicleByRider.get(r.id)?.battery_operator ?? null,
       // driver_id is already on r from SELECT *, kept here as alias for clarity
       driver_id: (r as Record<string, unknown>).driver_id ?? null,
     }));
