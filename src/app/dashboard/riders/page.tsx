@@ -112,14 +112,13 @@ const BATTERY_OPERATOR_OPTIONS = [
 ] as const;
 
 const STATUS_OPTIONS: { value: string; label: string }[] = [
-  { value: "all",           label: "All Statuses" },
-  { value: "pending_kyc",   label: "Pending KYC" },
-  { value: "kyc_submitted", label: "KYC Submitted" },
-  { value: "kyc_approved",  label: "KYC Approved" },
-  { value: "active",        label: "Active" },
-  { value: "suspended",     label: "Suspended" },
-  { value: "exited",        label: "Exited" },
+  { value: "all",         label: "All Statuses" },
+  { value: "active",      label: "Active" },
+  { value: "suspended",   label: "Suspended" },
+  { value: "pending_kyc", label: "Pending KYC" },
+  { value: "exited",      label: "Exited" },
 ];
+
 
 
 // ─── Fetch riders ────────────────────────────────────────────────────────────
