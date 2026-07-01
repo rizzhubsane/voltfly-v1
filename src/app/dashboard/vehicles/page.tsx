@@ -131,6 +131,7 @@ export default function VehiclesPage() {
   const [search, setSearch] = useState("");
   const [hubFilter, setHubFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
+  const [operatorFilter, setOperatorFilter] = useState("all");
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [editingVehicle, setEditingVehicle] = useState<VehicleWithDetails | null>(null);
 
@@ -213,6 +214,14 @@ export default function VehiclesPage() {
       );
     }
 
+    if (operatorFilter !== "all") {
+      list = list.filter((v) => {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const op = (v as any).battery_operator;
+        return op === operatorFilter;
+      });
+    }
+
     return [...list].sort((a, b) => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const idA = ((a as any).vehicle_id || "").toString().toUpperCase();
@@ -220,7 +229,7 @@ export default function VehiclesPage() {
       const idB = ((b as any).vehicle_id || "").toString().toUpperCase();
       return idA.localeCompare(idB, undefined, { numeric: true, sensitivity: 'base' });
     });
-  }, [vehicles, search, hubFilter, statusFilter]);
+  }, [vehicles, search, hubFilter, statusFilter, operatorFilter]);
 
   // ── Stats ────────────────────────────────────────────────────────────────
   const stats = useMemo(() => {
@@ -385,6 +394,16 @@ export default function VehiclesPage() {
             >
               <option value="all">All Hubs</option>
               {hubs.map((h) => <option key={h.id} value={h.id}>{h.name}</option>)}
+            </select>
+
+            <select
+              className="h-10 rounded-md border bg-white px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20"
+              value={operatorFilter}
+              onChange={(e) => setOperatorFilter(e.target.value)}
+            >
+              <option value="all">All Operators</option>
+              <option value="batterysmart">BatterySmart</option>
+              <option value="indofast">Sun Mobility</option>
             </select>
 
             <select
