@@ -224,15 +224,32 @@ export default function VehiclesPage() {
 
   // ── Stats ────────────────────────────────────────────────────────────────
   const stats = useMemo(() => {
-    const total    = vehicles.length;
-    const assigned = vehicles.filter((v) => v.assigned_rider_id).length;
-    const available = total - assigned;
-    const hubCounts = vehicles.reduce((acc, v) => {
-      const hubName = v.hubs?.name || "Unassigned";
-      acc[hubName] = (acc[hubName] || 0) + 1;
-      return acc;
-    }, {} as Record<string, number>);
-    return { total, assigned, available, hubCounts };
+    const total = vehicles.length;
+    
+    let bsTotal = 0;
+    let bsAssigned = 0;
+    let sunTotal = 0;
+    let sunAssigned = 0;
+
+    for (const v of vehicles) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const op = (v as any).battery_operator;
+      if (op === "batterysmart") {
+        bsTotal++;
+        if (v.assigned_rider_id) bsAssigned++;
+      } else if (op === "indofast") {
+        sunTotal++;
+        if (v.assigned_rider_id) sunAssigned++;
+      }
+    }
+
+    return { 
+      total, 
+      bsTotal, 
+      bsAvailable: bsTotal - bsAssigned,
+      sunTotal,
+      sunAvailable: sunTotal - sunAssigned
+    };
   }, [vehicles]);
 
   // ── Delete Mutation ──────────────────────────────────────────────────────
@@ -323,16 +340,21 @@ export default function VehiclesPage() {
       </div>
 
       {/* Summary Cards */}
-      <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
         <SummaryCard title="Total Fleet"  value={stats.total}     icon={Truck} />
-        <SummaryCard title="Assigned"     value={stats.assigned}  icon={CheckCircle2} colorClass="text-emerald-600 bg-emerald-50" />
-        <SummaryCard title="Available"    value={stats.available} icon={CircleDashed} colorClass="text-amber-600 bg-amber-50" />
-        <SummaryCard
-          title="Primary Hub"
-          value={Object.keys(stats.hubCounts)[0] || "N/A"}
-          icon={Building2}
-          description={Object.keys(stats.hubCounts)[0] ? `${stats.hubCounts[Object.keys(stats.hubCounts)[0]]} vehicles` : ""}
-          colorClass="text-blue-600 bg-blue-50"
+        <SummaryCard 
+          title="BatterySmart" 
+          value={stats.bsTotal} 
+          icon={CheckCircle2} 
+          description={`${stats.bsAvailable} available`}
+          colorClass="text-blue-600 bg-blue-50" 
+        />
+        <SummaryCard 
+          title="Sun Mobility" 
+          value={stats.sunTotal} 
+          icon={CircleDashed} 
+          description={`${stats.sunAvailable} available`}
+          colorClass="text-orange-600 bg-orange-50" 
         />
       </div>
 
