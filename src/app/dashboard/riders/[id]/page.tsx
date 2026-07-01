@@ -390,6 +390,7 @@ export default function RiderDetailPage() {
   const [walletAdjAmount, setWalletAdjAmount]   = useState("");
   const [walletAdjReason, setWalletAdjReason]   = useState("");
   const [upgridInput, setUpgridInput] = useState("");
+  const [upgridSyncing, setUpgridSyncing] = useState(false);
   const [assignVehicleOpen, setAssignVehicleOpen] = useState(false);
   const [selectedVehicleId, setSelectedVehicleId] = useState("");
   /** Combobox query — typed text that filters available vehicles */
@@ -436,6 +437,62 @@ export default function RiderDetailPage() {
       setHasInitUpgrid(true);
     }
   }, [data?.rider?.driver_id, hasInitUpgrid]);
+
+  // ── Upgrid background status sync ────────────────────────────────────────
+  // Silently syncs the rider's real Upgrid swap status on first load.
+  const [hasSynced, setHasSynced] = useState(false);
+  useEffect(() => {
+    if (!riderId || !data?.rider?.driver_id || hasSynced) return;
+    setHasSynced(true); // only fire once per page load
+    (async () => {
+      try {
+        const res = await adminFetch(`/api/admin/riders/${riderId}/upgrid-sync`, { cache: "no-store" });
+        const result = await res.json();
+        if (result.synced) {
+          toast.success(
+            `⚡ Status synced with Upgrid: was '${result.voltflyStatus}' → now '${result.newStatus}'`,
+            { duration: 5000 }
+          );
+          // Optimistically update the local cache to reflect the corrected status
+          queryClient.setQueryData(["rider-full", riderId], (old: RiderFullData | undefined) =>
+            old ? { ...old, rider: { ...old.rider, status: result.newStatus } } : old
+          );
+          // Re-fetch full data to confirm
+          queryClient.invalidateQueries({ queryKey: ["rider-full", riderId] });
+        }
+      } catch {
+        // Silent fail — background sync should never interrupt the user
+      }
+    })();
+  }, [riderId, data?.rider?.driver_id, hasSynced, queryClient]);
+
+  // Manual sync trigger
+  const handleManualUpgridSync = async () => {
+    if (!rider?.driver_id) {
+      toast.error("No Upgrid Driver ID linked. Cannot sync.");
+      return;
+    }
+    setUpgridSyncing(true);
+    try {
+      const res = await adminFetch(`/api/admin/riders/${riderId}/upgrid-sync`, { cache: "no-store" });
+      const result = await res.json();
+      if (!res.ok) throw new Error(result.error || "Sync failed");
+      if (result.synced) {
+        toast.success(`Status corrected: Upgrid reports '${result.upgridStatus}' → Voltfly updated to '${result.newStatus}'`);
+        queryClient.setQueryData(["rider-full", riderId], (old: RiderFullData | undefined) =>
+          old ? { ...old, rider: { ...old.rider, status: result.newStatus } } : old
+        );
+        queryClient.invalidateQueries({ queryKey: ["rider-full", riderId] });
+      } else {
+        toast.info(result.message || "Already in sync with Upgrid.");
+      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Unknown error";
+      toast.error(`Sync failed: ${msg}`);
+    } finally {
+      setUpgridSyncing(false);
+    }
+  };
 
   const { data: availableVehicles, isLoading: isLoadingVehicles } = useQuery({
     queryKey: ["available-vehicles"],
@@ -1652,8 +1709,25 @@ export default function RiderDetailPage() {
 
             {/* Upgrid Swap Access */}
             <section>
-              <h3 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground mb-1 flex items-center gap-2">
-                <Zap className="h-4 w-4" /> Upgrid Swap Access (Driver ID)
+              <h3 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground mb-1 flex items-center gap-2 justify-between">
+                <span className="flex items-center gap-2">
+                  <Zap className="h-4 w-4" /> Upgrid Swap Access (Driver ID)
+                </span>
+                {rider?.driver_id && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-7 gap-1.5 text-xs border-blue-200 text-blue-700 hover:bg-blue-50"
+                    onClick={handleManualUpgridSync}
+                    disabled={upgridSyncing}
+                    title="Check and sync the rider's actual swap status from Upgrid"
+                  >
+                    {upgridSyncing
+                      ? <Loader2 className="h-3 w-3 animate-spin" />
+                      : <RefreshCw className="h-3 w-3" />}
+                    {upgridSyncing ? "Syncing…" : "Sync Status"}
+                  </Button>
+                )}
               </h3>
               <p className="text-sm text-muted-foreground mb-4">
                 Link the rider&apos;s Upgrid account ID to enable automated and manual block/unblock controls.
