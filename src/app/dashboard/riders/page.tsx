@@ -317,7 +317,7 @@ function exportCSV(riders: RiderWithHub[]) {
 export default function RidersPage() {
   const { role, hub_id, adminId } = useAdmin();
   const isSuperAdmin = role === "super_admin";
-  const queryClient = useQueryClient();
+  // queryClient is now defined in the per-row sync section below
 
   // ── Filters ──────────────────────────────────────────────────────────────
   const [search, setSearch] = useState("");
@@ -390,6 +390,36 @@ export default function RidersPage() {
   const [swapAction, setSwapAction] = useState<"block" | "unblock">("block");
   const [swapReason, setSwapReason] = useState("");
 
+  // ── Per-row Upgrid sync ───────────────────────────────────────────────────
+  const [syncingIds, setSyncingIds] = useState<Set<string>>(new Set());
+  const queryClient = useQueryClient();
+
+  const handleSyncRider = async (rider: RiderWithHub) => {
+    if (!rider.driver_id) {
+      toast.error(`${rider.name}: No Upgrid Driver ID linked`);
+      return;
+    }
+    setSyncingIds((prev) => new Set(prev).add(rider.id));
+    try {
+      const res = await adminFetch(`/api/admin/riders/${rider.id}/upgrid-sync`, { cache: "no-store" });
+      const result = await res.json();
+      if (!res.ok) throw new Error(result.error || "Sync failed");
+      if (result.synced) {
+        toast.success(`${rider.name}: ${result.voltflyStatus} → ${result.newStatus}`);
+        // Optimistically update the local list without a full refetch
+        queryClient.setQueryData(["riders", hub_id], (old: RiderWithHub[] | undefined) =>
+          (old ?? []).map((r) => r.id === rider.id ? { ...r, status: result.newStatus } : r)
+        );
+      } else {
+        toast.info(`${rider.name}: Already in sync (${result.upgridStatus ?? "no driver ID"})`);
+      }
+    } catch (err: unknown) {
+      toast.error(`${rider.name}: ${err instanceof Error ? err.message : "Sync failed"}`);
+    } finally {
+      setSyncingIds((prev) => { const next = new Set(prev); next.delete(rider.id); return next; });
+    }
+  };
+
   // ── Queries ──────────────────────────────────────────────────────────────
   const {
     data: allRiders = [],
@@ -397,7 +427,7 @@ export default function RidersPage() {
     error,
   } = useQuery({
     queryKey: ["riders", hub_id],
-    queryFn: () => fetchRiders(null),  // hub_id is metadata only — no data isolation by hub
+    queryFn: () => fetchRiders(null),
     staleTime: 0,
     gcTime: 0,
   });
@@ -712,7 +742,7 @@ export default function RidersPage() {
               <TableHead>Driver ID</TableHead>
               <TableHead>Swap</TableHead>
               <TableHead>Joined</TableHead>
-              <TableHead>Admin Info</TableHead>
+              <TableHead>Sync</TableHead>
               <TableHead className="w-[80px]" />
             </TableRow>
           </TableHeader>
@@ -878,17 +908,25 @@ export default function RidersPage() {
                       : "—"}
                   </TableCell>
 
-                  {/* Admin Info */}
-                  <TableCell className="max-w-[160px]">
-                    <div className="space-y-1">
-                      {(rider as any).added_by && (
-                        <div className="flex items-center gap-1.5 text-[10px] font-medium text-blue-700 bg-blue-50 border border-blue-100 rounded-full px-2 py-0.5 w-fit max-w-full truncate" title={`Added by: ${(rider as any).added_by}`}>
-                          <span>👤</span>
-                          <span className="truncate">{(rider as any).added_by}</span>
-                        </div>
-                      )}
-                      <ExpandableNote note={(rider as any).admin_notes} />
-                    </div>
+                  {/* Sync Status (Upgrid) */}
+                  <TableCell>
+                    {rider.driver_id ? (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="gap-1 text-xs h-7 border-blue-200 text-blue-700 hover:bg-blue-50"
+                        disabled={syncingIds.has(rider.id)}
+                        onClick={() => handleSyncRider(rider)}
+                        title="Check and sync swap status from Upgrid"
+                      >
+                        {syncingIds.has(rider.id)
+                          ? <Loader2 className="h-3 w-3 animate-spin" />
+                          : <RefreshCw className="h-3 w-3" />}
+                        {syncingIds.has(rider.id) ? "Syncing" : "Sync"}
+                      </Button>
+                    ) : (
+                      <span className="text-muted-foreground text-xs">—</span>
+                    )}
                   </TableCell>
 
                   {/* Actions */}
