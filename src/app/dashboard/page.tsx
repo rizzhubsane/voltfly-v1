@@ -183,6 +183,7 @@ export default function DashboardOverview() {
 
       const ridersTyped = (riders || []) as RiderLite[];
       const riderHubById = new Map(ridersTyped.map((r) => [r.id, r.hub_id ?? null]));
+      const riderStatusById = new Map(ridersTyped.map((r) => [r.id, r.status ?? ""]));
       const riderNameById = new Map(ridersTyped.map((r) => [r.id, r.name ?? "Unknown"]));
 
       // 3. Helper to filter by hub
@@ -199,7 +200,14 @@ export default function DashboardOverview() {
 
       const aggregate: DashboardStats = {
         activeRiders: ridersTyped.filter(r => r.status === "active" && filterByHub(r)).length,
-        pendingKyc: ((kycCounts || []) as KycLite[]).filter(k => k.kyc_status === "submitted" && filterByHub(k)).length,
+        pendingKyc: ((kycCounts || []) as KycLite[]).filter(k => {
+          if (k.kyc_status !== "submitted") return false;
+          if (!filterByHub(k)) return false;
+          // Exclude exited riders — their KYC submissions are stale/irrelevant
+          const riderStatus = riderStatusById.get(k.rider_id);
+          if (riderStatus === "exited") return false;
+          return true;
+        }).length,
         overduePayments: ridersTyped.filter(r => r.status === "active" && r.wallet_balance !== null && r.wallet_balance <= 0 && filterByHub(r)).length,
         batteriesBlocked: ((batteryCounts || []) as Array<{ rider_id: string; status: string | null }>).filter(b => b.status === "blocked" && filterByHub(b)).length,
         openServiceRequests: ((serviceCounts || []) as ServiceLite[]).filter(s => s.status === "open" && filterByHub(s)).length,
@@ -220,7 +228,14 @@ export default function DashboardOverview() {
           hubId,
           hubName: h.name,
           activeRiders: ridersTyped.filter(r => r.status === "active" && r.hub_id === hubId).length,
-          pendingKyc: ((kycCounts || []) as KycLite[]).filter(k => k.kyc_status === "submitted" && riderHubById.get(k.rider_id) === hubId).length,
+          pendingKyc: ((kycCounts || []) as KycLite[]).filter(k => {
+            if (k.kyc_status !== "submitted") return false;
+            if (riderHubById.get(k.rider_id) !== hubId) return false;
+            // Exclude exited riders from the hub's pending KYC count too
+            const riderStatus = riderStatusById.get(k.rider_id);
+            if (riderStatus === "exited") return false;
+            return true;
+          }).length,
           overduePayments: ridersTyped.filter(r => r.status === "active" && r.wallet_balance !== null && r.wallet_balance <= 0 && r.hub_id === hubId).length,
           batteriesBlocked: ((batteryCounts || []) as Array<{ rider_id: string; status: string | null }>).filter(b => b.status === "blocked" && riderHubById.get(b.rider_id) === hubId).length,
           openServiceRequests: ((serviceCounts || []) as ServiceLite[]).filter(s => s.status === "open" && riderHubById.get(s.rider_id) === hubId).length,
