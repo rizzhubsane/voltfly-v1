@@ -317,7 +317,7 @@ function exportCSV(riders: RiderWithHub[]) {
 export default function RidersPage() {
   const { role, hub_id, adminId } = useAdmin();
   const isSuperAdmin = role === "super_admin";
-  // queryClient is now defined in the per-row sync section below
+  const queryClient = useQueryClient();
 
   // ── Filters ──────────────────────────────────────────────────────────────
   const [search, setSearch] = useState("");
@@ -390,10 +390,8 @@ export default function RidersPage() {
   const [swapAction, setSwapAction] = useState<"block" | "unblock">("block");
   const [swapReason, setSwapReason] = useState("");
 
-  // ── Per-row Upgrid sync ───────────────────────────────────────────────────
   const [syncingIds, setSyncingIds] = useState<Set<string>>(new Set());
-  const queryClient = useQueryClient();
-
+  
   const handleSyncRider = async (rider: RiderWithHub) => {
     if (!rider.driver_id) {
       toast.error(`${rider.name}: No Upgrid Driver ID linked`);
@@ -487,7 +485,7 @@ export default function RidersPage() {
     // Battery operator filter
     if (operatorFilter !== "all") {
       list = list.filter((r) => {
-        const op = (r as any).battery_operator as string | null;
+        const op = r.battery_operator ?? null;
         if (operatorFilter === "none") return !op;
         return op === operatorFilter;
       });

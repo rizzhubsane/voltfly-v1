@@ -832,7 +832,8 @@ export type AdminUser = Database['public']['Tables']['admin_users']['Row'];
 export type Rider = Database['public']['Tables']['riders']['Row'];
 export type KycRecord = Database['public']['Tables']['kyc']['Row'];
 export type KycWithRider = KycRecord & { riders: Rider };
-export type RiderWithHub = Rider & { hubs: Pick<Hub, 'name'> | null; vehicle_id?: string | null; driver_id?: string | null };
+export type RiderWithHub = Rider & { hubs: Pick<Hub, 'name'> | null; vehicle_id?: string | null; driver_id?: string | null; battery_operator?: string | null };
+
 export type Vehicle = Database['public']['Tables']['vehicles']['Row'];
 export type VehicleWithDetails = Vehicle & { 
   hubs: Pick<Hub, 'name'> | null; 
