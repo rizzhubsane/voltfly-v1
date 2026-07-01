@@ -110,7 +110,7 @@ function SummaryCard({
           <div>
             <p className="text-sm font-medium text-muted-foreground">{title}</p>
             <h3 className="text-2xl font-bold tracking-tight text-[#0D2D6B]">{value}</h3>
-            {description && <p className="text-xs text-muted-foreground mt-1">{description}</p>}
+            {description && <p className="text-sm font-semibold mt-1.5 text-slate-700">{description}</p>}
           </div>
         </div>
       </CardContent>
