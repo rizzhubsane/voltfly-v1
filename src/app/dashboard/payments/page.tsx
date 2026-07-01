@@ -206,10 +206,8 @@ export default function PaymentsPage() {
 
   // ── State ────────────────────────────────────────────────────────────────
   const [search, setSearch] = useState("");
-  const [hubFilter, setHubFilter] = useState<string>("all");
-  const [dateRange, setDateRange] = useState<DateRange | undefined>(undefined);
+  const [dateRange, setDateRange] = useState<DateRange | undefined>();
   const [methodFilter, setMethodFilter] = useState("all");
-  const [statusFilter, setStatusFilter] = useState("all");
   const [logCashOpen, setLogCashOpen] = useState(false);
   const [refundOpen, setRefundOpen] = useState(false);
   const [selectedDeposit, setSelectedDeposit] = useState<SecurityDeposit | null>(null);
@@ -284,12 +282,7 @@ export default function PaymentsPage() {
 
     payments.forEach(p => {
       if (p.status !== "paid") return;
-      const matchesHub =
-        hubFilter === "all" ||
-        (p.riders?.hub_id != null && p.riders.hub_id === hubFilter);
-        
-      if (!matchesHub) return;
-
+      
       const dStr = p.paid_at ?? p.created_at;
       if (!dStr) return;
       
@@ -326,7 +319,7 @@ export default function PaymentsPage() {
       week, weekCash, weekKotak, weekRazorpay,
       month, monthCash, monthKotak, monthRazorpay
     };
-  }, [payments, hubFilter, role, hub_id]);
+  }, [payments, role, hub_id]);
 
   // ── Filtering ────────────────────────────────────────────────────────────
   const filteredPayments = useMemo(() => {
@@ -336,12 +329,6 @@ export default function PaymentsPage() {
       const q           = search.toLowerCase().trim();
       const matchesSearch = !q || riderName.includes(q) || vehicleId.includes(q);
       const matchesMethod = methodFilter === "all" || p.method === methodFilter || (methodFilter === "razorpay" && p.method && p.method.includes("razorpay"));
-      const matchesStatus = statusFilter === "all" || p.status === statusFilter;
-
-      // Hub filter: use dropdown for all roles (hub_id is metadata only)
-      const matchesHub =
-        hubFilter === "all" ||
-        (p.riders?.hub_id != null && p.riders.hub_id === hubFilter);
 
       // Date: Razorpay payments don't set payment_date — fall back to paid_at then created_at
       const rawDate = p.paid_at ?? p.created_at;
@@ -357,9 +344,9 @@ export default function PaymentsPage() {
         }
       }
 
-      return matchesSearch && matchesMethod && matchesStatus && matchesHub && matchesDate;
+      return matchesSearch && matchesMethod && matchesDate;
     });
-  }, [payments, search, methodFilter, statusFilter, hubFilter, role, hub_id, dateRange]);
+  }, [payments, search, methodFilter, dateRange]);
 
   // ── Handlers ─────────────────────────────────────────────────────────────
   const exportPayments = () => {
@@ -502,23 +489,6 @@ export default function PaymentsPage() {
               </div>
             </div>
             <div className="flex items-center gap-2 flex-wrap justify-end">
-              <Select
-                value={hubFilter}
-                onValueChange={(val) => setHubFilter(val)}
-              >
-                <SelectTrigger className="h-9 w-[160px]">
-                  <SelectValue placeholder="All hubs" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All hubs</SelectItem>
-                  {hubs.map((h) => (
-                    <SelectItem key={h.id} value={h.id}>
-                      {h.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-
               <Popover>
                 <PopoverTrigger asChild>
                   <Button variant="outline" size="sm" className="h-9 gap-2">
@@ -588,18 +558,7 @@ export default function PaymentsPage() {
                 </SelectContent>
               </Select>
 
-              <Select value={statusFilter} onValueChange={setStatusFilter}>
-                <SelectTrigger className="h-9 w-[140px]">
-                  <SelectValue placeholder="All statuses" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All statuses</SelectItem>
-                  <SelectItem value="paid">Paid</SelectItem>
-                  <SelectItem value="pending">Pending</SelectItem>
-                  <SelectItem value="overdue">Overdue</SelectItem>
-                  <SelectItem value="failed">Failed</SelectItem>
-                </SelectContent>
-              </Select>
+
 
               <Button variant="outline" size="sm" className="h-9 gap-2" onClick={exportPayments}>
                 <Download className="h-4 w-4" />
