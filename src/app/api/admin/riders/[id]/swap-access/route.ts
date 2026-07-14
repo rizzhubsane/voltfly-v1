@@ -47,7 +47,7 @@ export async function POST(
 
     // 1. Invoke Upgrid Edge Function
     const functionName = action === "block" ? "battery-block" : "battery-unblock";
-    const { error: fnError } = await supabaseAdmin.functions.invoke(functionName, {
+    const { data, error: fnError } = await supabaseAdmin.functions.invoke(functionName, {
       body: { 
         driverId, 
         riderId, 
@@ -57,12 +57,13 @@ export async function POST(
       },
     });
 
+    let upgridWarning = null;
     if (fnError) {
-      console.error(`${functionName} edge function error:`, fnError);
-      return NextResponse.json(
-        { error: `Upgrid API failed: ${fnError.message || "Unknown error"}` },
-        { status: 500 }
-      );
+      console.warn(`[swap-access] ${functionName} edge function error (likely Upgrid API failure):`, fnError.message);
+      upgridWarning = `Upgrid Warning: ${fnError.message || "Unknown error"}`;
+    } else if (data && data.success === false) {
+      console.warn(`[swap-access] Upgrid API returned success: false. Error: ${data.error}`);
+      upgridWarning = `Upgrid Warning: ${data.error}`;
     }
 
     // 2. Securely update the Rider Status in DB
@@ -93,7 +94,7 @@ export async function POST(
 
     // battery_events_log is written by the battery-block / battery-unblock Edge Functions (no duplicate row here).
 
-    return NextResponse.json({ success: true, newStatus });
+    return NextResponse.json({ success: true, newStatus, upgridWarning });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : "Unknown error";
     return NextResponse.json({ error: message }, { status: 500 });

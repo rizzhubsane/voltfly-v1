@@ -103,13 +103,12 @@ export async function GET(
     }
 
     const driverJson = await driverRes.json();
-    // Upgrid returns the swap status as "active" or "blocked"
-    const upgridStatus: string = driverJson?.data?.status ?? driverJson?.status ?? "unknown";
-
-    // 3. Map Upgrid status to Voltfly status
-    //    Upgrid "active"  → Voltfly should be "active"
-    //    Upgrid "blocked" → Voltfly should be "suspended"
-    const expectedVoltflyStatus = upgridStatus === "active" ? "active" : "suspended";
+    const upgridData = driverJson?.data ?? driverJson ?? {};
+    // Upgrid often keeps status='active' but sets isBlockedByClientPortal=true when blocked by API.
+    const isBlocked = upgridData.isBlockedByClientPortal === true || upgridData.status === "blocked";
+    
+    const upgridStatus = isBlocked ? "blocked" : "active";
+    const expectedVoltflyStatus = isBlocked ? "suspended" : "active";
 
     // Only patch statuses we care about (don't overwrite exited / on_leave / pending_kyc etc.)
     const patchableStatuses = new Set(["active", "suspended"]);

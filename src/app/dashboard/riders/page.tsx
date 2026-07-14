@@ -448,8 +448,11 @@ export default function RidersPage() {
       if (!res.ok) throw new Error(d.error || `Failed to ${swapAction} swap access`);
       return d;
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
       toast.success(`Swap access ${swapAction === "block" ? "blocked" : "unblocked"} for ${swapTarget?.name}`);
+      if (data && data.upgridWarning) {
+        toast.warning(data.upgridWarning, { duration: 8000 });
+      }
       queryClient.invalidateQueries({ queryKey: ["riders"] });
       setSwapDialogOpen(false);
       setSwapTarget(null);

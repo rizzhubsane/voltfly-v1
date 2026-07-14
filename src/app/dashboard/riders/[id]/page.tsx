@@ -611,9 +611,12 @@ export default function RiderDetailPage() {
       if (!res.ok) throw new Error(d.error || `Failed to ${swapActionType} swap access`);
       return d;
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
       const newStatus = swapActionType === "block" ? "suspended" : "active";
       toast.success(`Swap access successfully ${swapActionType === "block" ? "blocked" : "unblocked"}`);
+      if (data && data.upgridWarning) {
+        toast.warning(data.upgridWarning, { duration: 8000 });
+      }
 
       // Instantly flip the button without waiting for the RPC refetch
       queryClient.setQueryData(["rider-full", riderId], (old: RiderFullData | undefined) =>
