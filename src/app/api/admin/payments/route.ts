@@ -95,11 +95,11 @@ export async function GET(request: Request) {
       return NextResponse.json({ riders: riderList, batteries: batteries ?? [] });
     }
 
-    // ── Payments List ────────────────────────────────────────────────────
     const { data: payments, error: paymentsErr } = await supabaseAdmin
       .from("payments")
       .select("id, rider_id, amount, plan_type, method, paid_at, due_date, status, notes, created_at")
-      .order("created_at", { ascending: false });
+      .order("created_at", { ascending: false })
+      .limit(5000);
 
     if (paymentsErr) {
       return NextResponse.json({ error: paymentsErr.message }, { status: 500 });

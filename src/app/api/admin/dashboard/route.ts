@@ -54,7 +54,9 @@ export async function GET(request: Request) {
 
       supabaseAdmin
         .from("payments")
-        .select("id, rider_id, amount, plan_type, status, paid_at, due_date, created_at"),
+        .select("id, rider_id, amount, plan_type, status, paid_at, due_date, created_at")
+        .order("created_at", { ascending: false })
+        .limit(5000),
 
       supabaseAdmin
         .from("batteries")
