@@ -1,6 +1,5 @@
 "use client";
 import { adminFetch } from "@/lib/adminFetch";
-import { ExpandableNote } from "@/components/shared/ExpandableNote";
 
 import { useState, useMemo, useCallback, useRef, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -291,8 +290,8 @@ function exportCSV(riders: RiderWithHub[]) {
     r.vehicle_id || "—",
     r.driver_id || "—",
     r.created_at ? format(new Date(r.created_at), "yyyy-MM-dd") : "—",
-    (r as any).added_by || "—",
-    (r as any).admin_notes || "—",
+    r.added_by || "—",
+    r.admin_notes || "—",
   ]);
 
   const csv = [headers, ...rows]
@@ -335,7 +334,11 @@ export default function RidersPage() {
   const toggleSelect = (id: string) =>
     setSelectedIds((prev) => {
       const next = new Set(prev);
-      next.has(id) ? next.delete(id) : next.add(id);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
       return next;
     });
 

@@ -4,6 +4,15 @@ import { verifyAdmin } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
 
+type SearchRider = {
+  id: string;
+  name: string;
+  phone_1: string;
+  status: string;
+  gig_company?: string | null;
+  vehicle_id?: string | null;
+};
+
 /**
  * GET /api/admin/riders/search?q=...
  *
@@ -70,7 +79,7 @@ export async function GET(request: Request) {
         .limit(10);
 
       if (vRiders) {
-        byVehicle = (vRiders as any[]).map((r) => {
+        byVehicle = (vRiders as SearchRider[]).map((r) => {
           const veh = vehicleRes.data.find((v) => v.assigned_rider_id === r.id);
           return { ...r, vehicle_id: veh?.vehicle_id ?? "" };
         });
@@ -79,7 +88,7 @@ export async function GET(request: Request) {
 
     // Merge and deduplicate — vehicle matches shown first
     const seen = new Set<string>();
-    const riders = [...byVehicle, ...((nameRes.data as any[]) ?? []), ...((phoneRes.data as any[]) ?? [])]
+    const riders = [...byVehicle, ...((nameRes.data as SearchRider[]) ?? []), ...((phoneRes.data as SearchRider[]) ?? [])]
       .map((r) => ({
         id: r.id,
         name: r.name,

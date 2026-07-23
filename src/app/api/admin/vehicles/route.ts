@@ -155,7 +155,7 @@ export async function POST(request: Request) {
       if ("assigned_rider_id" in body) {
         const { data: existingVeh, error: exErr } = await supabaseAdmin
           .from("vehicles")
-          .select("vehicle_id, chassis_number, assigned_rider_id")
+          .select("vehicle_id, chassis_number, battery_operator, assigned_rider_id")
           .eq("id", id)
           .single();
 
@@ -256,29 +256,41 @@ export async function POST(request: Request) {
 
       const adminName = auth.admin.name || auth.admin.email || "Admin";
 
-      if (pairingDriverId && vehicleData.assigned_rider_id) {
-        // ── Guard 1: Clear driver_id from any rider who already holds it ──────
-        // This prevents the unique constraint violation on riders.driver_id
-        const { data: conflictingRiders } = await supabaseAdmin
-          .from("riders")
-          .select("id, name")
-          .eq("driver_id", pairingDriverId)
-          .neq("id", vehicleData.assigned_rider_id as string);
+      if (vehicleData.assigned_rider_id) {
+        const assignedRiderId = vehicleData.assigned_rider_id as string;
+        const assignedVehicleId = normalizeVfel(data.vehicle_id);
+        const assignedOperator =
+          assignedVehicleId.startsWith("SUN-") ||
+          ((data as unknown as Record<string, unknown>).battery_operator as string) === "indofast"
+            ? "indofast"
+            : "batterysmart";
+        const assignedDailyRate = assignedOperator === "indofast" ? 250 : 230;
 
-        if (conflictingRiders && conflictingRiders.length > 0) {
-          await supabaseAdmin
+        if (pairingDriverId) {
+          // ── Guard 1: Clear driver_id from any rider who already holds it ──────
+          // This prevents the unique constraint violation on riders.driver_id.
+          const { data: conflictingRiders } = await supabaseAdmin
             .from("riders")
-            .update({ driver_id: null })
-            .in("id", conflictingRiders.map((r) => r.id));
-          console.log(`[vehicles] Cleared driver_id ${pairingDriverId} from ${conflictingRiders.map(r => r.name).join(", ")} before reassignment`);
+            .select("id, name")
+            .eq("driver_id", pairingDriverId)
+            .neq("id", assignedRiderId);
+
+          if (conflictingRiders && conflictingRiders.length > 0) {
+            await supabaseAdmin
+              .from("riders")
+              .update({ driver_id: null })
+              .in("id", conflictingRiders.map((r) => r.id));
+            console.log(`[vehicles] Cleared driver_id ${pairingDriverId} from ${conflictingRiders.map(r => r.name).join(", ")} before reassignment`);
+          }
         }
 
         // ── Guard 2: Unassign any other vehicle this rider already has ────────
-        // This prevents a rider from having two vehicles assigned at once
+        // This prevents a rider from having two vehicles assigned at once,
+        // including SUN/IndoFast vehicles that do not have an Upgrid driver_id.
         const { data: existingAssigned } = await supabaseAdmin
           .from("vehicles")
           .select("id, vehicle_id")
-          .eq("assigned_rider_id", vehicleData.assigned_rider_id as string)
+          .eq("assigned_rider_id", assignedRiderId)
           .neq("id", id);
 
         if (existingAssigned && existingAssigned.length > 0) {
@@ -293,19 +305,21 @@ export async function POST(request: Request) {
         const { data: riderData } = await supabaseAdmin
           .from("riders")
           .select("admin_notes")
-          .eq("id", vehicleData.assigned_rider_id as string)
+          .eq("id", assignedRiderId)
           .single();
         
         const existingNotes = riderData?.admin_notes ? `${riderData.admin_notes}\n` : "";
-        const auditStr = `Vehicle assigned: ${normalizeVfel(data.vehicle_id)} (Logged by: ${adminName})`;
+        const auditStr = `Vehicle assigned: ${assignedVehicleId} (${assignedOperator}, ₹${assignedDailyRate}/day; Logged by: ${adminName})`;
 
         const { error: riderErr } = await supabaseAdmin
           .from("riders")
           .update({ 
-            driver_id: pairingDriverId,
+            driver_id: pairingDriverId ?? null,
+            battery_operator: assignedOperator,
+            daily_deduction_rate: assignedDailyRate,
             admin_notes: `${existingNotes}${auditStr}`
           })
-          .eq("id", vehicleData.assigned_rider_id as string);
+          .eq("id", assignedRiderId);
         if (riderErr) throw riderErr;
       }
 

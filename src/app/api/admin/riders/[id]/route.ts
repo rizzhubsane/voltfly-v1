@@ -96,12 +96,24 @@ export async function PATCH(
         }
       }
 
+      if (sanitized.status === "exited") {
+        sanitized.driver_id = null;
+      }
+
       if (Object.keys(sanitized).length > 0) {
         const { error } = await supabaseAdmin
           .from("riders")
           .update(sanitized)
           .eq("id", riderId);
         if (error) throw error;
+
+        if (sanitized.status === "exited") {
+          const { error: vehicleErr } = await supabaseAdmin
+            .from("vehicles")
+            .update({ assigned_rider_id: null, assigned_at: null })
+            .eq("assigned_rider_id", riderId);
+          if (vehicleErr) throw vehicleErr;
+        }
       }
     }
 

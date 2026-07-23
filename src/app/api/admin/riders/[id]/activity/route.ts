@@ -37,7 +37,7 @@ export async function GET(
     }
 
     // Fetch everything in parallel using the service role key so RLS is bypassed.
-    const [paymentsRes, depositsRes, serviceRes, batteryEventsRes, riderRes, kycRes] = await Promise.all([
+    const [paymentsRes, , serviceRes, batteryEventsRes, riderRes, kycRes] = await Promise.all([
       supabaseAdmin
         .from("payments")
         .select("*")

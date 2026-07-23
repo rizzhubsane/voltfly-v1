@@ -20,7 +20,7 @@ export async function GET(request: Request) {
     }
 
     // hub_id is metadata only — all admins see all service requests
-    let serviceQuery = supabaseAdmin
+    const serviceQuery = supabaseAdmin
       .from("service_requests")
       .select(`*, riders(name, phone_1)`)
       .order("created_at", { ascending: false });

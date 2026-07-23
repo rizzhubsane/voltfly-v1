@@ -56,31 +56,57 @@ export async function GET(request: Request) {
       )
     );
 
-    // Fetch hubs and vehicles in parallel (driver_id is now on riders directly)
-    const [hubResult, vehicleResult] = await Promise.all([
-      hubIds.length > 0
-        ? supabaseAdmin.from("hubs").select("id, name").in("id", hubIds)
-        : Promise.resolve({ data: [] as { id: string; name: string }[], error: null }),
+    let hubRows: { id: string; name: string }[] = [];
+    if (hubIds.length > 0) {
+      const { data, error } = await supabaseAdmin
+        .from("hubs")
+        .select("id, name")
+        .in("id", hubIds);
+      if (error) {
+        console.error("[riders/route] Hub enrichment failed:", error.message);
+      } else {
+        hubRows = data ?? [];
+      }
+    }
 
-      riderIds.length > 0
-        ? supabaseAdmin
-            .from("vehicles")
-            .select("assigned_rider_id, vehicle_id, chassis_number, battery_operator")
-            .in("assigned_rider_id", riderIds)
-        : Promise.resolve({
-            data: [] as { assigned_rider_id: string | null; vehicle_id: string | null; chassis_number: string; battery_operator: string | null }[],
-            error: null,
-          }),
-    ]);
+    type VehicleAssignment = {
+      assigned_rider_id: string | null;
+      vehicle_id?: string | null;
+      chassis_number?: string | null;
+      battery_operator?: string | null;
+    };
 
-    if (hubResult.error) throw hubResult.error;
-    if (vehicleResult.error) throw vehicleResult.error;
+    let vehicleRows: VehicleAssignment[] = [];
+    if (riderIds.length > 0) {
+      const riderIdSet = new Set(riderIds);
+      const vehicleSelects = [
+        "assigned_rider_id, vehicle_id, chassis_number, battery_operator",
+        "assigned_rider_id, vehicle_id, chassis_number",
+        "assigned_rider_id, vehicle_id",
+      ];
 
-    const hubById = new Map((hubResult.data || []).map((h) => [h.id, h.name]));
+      for (const select of vehicleSelects) {
+        const { data, error } = await supabaseAdmin
+          .from("vehicles")
+          .select(select)
+          .not("assigned_rider_id", "is", null);
+
+        if (!error) {
+          vehicleRows = ((data ?? []) as VehicleAssignment[]).filter(
+            (v) => v.assigned_rider_id !== null && riderIdSet.has(v.assigned_rider_id)
+          );
+          break;
+        }
+
+        console.error(`[riders/route] Vehicle enrichment failed for "${select}":`, error.message);
+      }
+    }
+
+    const hubById = new Map(hubRows.map((h) => [h.id, h.name]));
 
     // vehicle_id + battery_operator: prefer vehicle_id field, fall back to chassis_number
     const vehicleByRider = new Map(
-      (vehicleResult.data || [])
+      vehicleRows
         .filter((v) => v.assigned_rider_id !== null)
         .map((v) => [
           v.assigned_rider_id as string,
@@ -126,6 +152,7 @@ export async function GET(request: Request) {
         : error instanceof Error
           ? error.message
           : "Unknown error";
+    console.error("[riders/route] GET failed:", message, error);
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }

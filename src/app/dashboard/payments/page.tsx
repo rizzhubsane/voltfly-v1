@@ -84,19 +84,7 @@ interface SecurityDeposit {
   } | null;
 }
 
-interface HubItem {
-  id: string;
-  name: string;
-}
-
 // ─── Constants ───────────────────────────────────────────────────────────────
-
-const STATUS_CONFIG: Record<string, { label: string; class: string }> = {
-  paid: { label: "Paid", class: "bg-emerald-100 text-emerald-700" },
-  pending: { label: "Pending", class: "bg-amber-100 text-amber-700" },
-  overdue: { label: "Overdue", class: "bg-red-100 text-red-700" },
-  failed: { label: "Failed", class: "bg-slate-200 text-slate-700" },
-};
 
 const METHOD_CONFIG: Record<string, { label: string; icon: string; class: string }> = {
   cash:     { label: "Cash",        icon: "💵", class: "bg-emerald-50 text-emerald-700 border-emerald-200" },
@@ -188,13 +176,6 @@ async function fetchSecurityDeposits(): Promise<SecurityDeposit[]> {
   return (json.deposits ?? []) as SecurityDeposit[];
 }
 
-async function fetchHubs(): Promise<HubItem[]> {
-  const res = await adminFetch("/api/admin/payments?type=hubs", { cache: "no-store" });
-  if (!res.ok) return [];
-  const json = await res.json();
-  return (json.hubs ?? []) as HubItem[];
-}
-
 // ═════════════════════════════════════════════════════════════════════════════
 // MAIN PAGE COMPONENT
 // ═════════════════════════════════════════════════════════════════════════════
@@ -213,11 +194,6 @@ export default function PaymentsPage() {
   const [selectedDeposit, setSelectedDeposit] = useState<SecurityDeposit | null>(null);
 
   // ── Queries ──────────────────────────────────────────────────────────────
-  const { data: hubs = [] } = useQuery({
-    queryKey: ["hubs"],
-    queryFn: fetchHubs,
-  });
-
   const { data: payments = [], isLoading: loadingPayments, error: paymentsError } = useQuery({
     queryKey: ["all-payments"],
     queryFn: fetchPayments,
@@ -282,6 +258,7 @@ export default function PaymentsPage() {
 
     payments.forEach(p => {
       if (p.status !== "paid") return;
+      if (!isSuperAdmin && hub_id && p.riders?.hub_id !== hub_id) return;
       
       const dStr = p.paid_at ?? p.created_at;
       if (!dStr) return;
@@ -319,7 +296,7 @@ export default function PaymentsPage() {
       week, weekCash, weekKotak, weekRazorpay,
       month, monthCash, monthKotak, monthRazorpay
     };
-  }, [payments, role, hub_id]);
+  }, [payments, isSuperAdmin, hub_id]);
 
   // ── Filtering ────────────────────────────────────────────────────────────
   const filteredPayments = useMemo(() => {

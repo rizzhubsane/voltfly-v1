@@ -4,7 +4,7 @@ import { LogCashPaymentDrawer } from "@/components/payments/LogCashPaymentDrawer
 import { ExpandableNote } from "@/components/shared/ExpandableNote";
 import { Sheet } from "@/components/ui/sheet";
 
-import { useState, useMemo, useEffect, useRef, useCallback } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
@@ -509,25 +509,6 @@ export default function RiderDetailPage() {
     () => (availableVehicles?.length ? sortVehiclesByVfelId(availableVehicles) : []),
     [availableVehicles]
   );
-
-  /** Returns vehicles.id when the typed query matches an available row by vehicle_id, VIN, chassis (reg), or battery_operator (driver ID). */
-  const resolveAssignVehicleIdInput = useCallback((): string | null => {
-    const q = assignVehicleIdInput.trim().toUpperCase();
-    if (!q || !availableVehicles?.length) return null;
-    const found = (availableVehicles as { id: string; vehicle_id?: string | null; vin_number?: string | null; chassis_number?: string | null; battery_operator?: string | null }[]).find(
-      (v) =>
-        (v.vehicle_id || "").trim().toUpperCase() === q ||
-        (v.vin_number || "").trim().toUpperCase() === q ||
-        (v.chassis_number || "").trim().toUpperCase() === q ||
-        (v.battery_operator || "").trim().toUpperCase() === q
-    );
-    if (found) {
-      setSelectedVehicleId(found.id);
-      setAssignVehicleIdInput((found.vehicle_id || "").trim());
-      return found.id;
-    }
-    return null;
-  }, [assignVehicleIdInput, availableVehicles]);
 
   const { data: assignmentChecklist } = useQuery({
     queryKey: ["handover-checklist", data?.vehicle?.id],
